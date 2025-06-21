@@ -10,6 +10,8 @@ namespace BloodSuckersSlot
         public List<int[]> Paylines { get; set; } = new(); // List of 5-column payline patterns
         public double MaxRtpPerSet { get; set; } = 1.3;
 
+        public Dictionary<string, SymbolConfig> Symbols { get; set; }
+
     }
 
 }

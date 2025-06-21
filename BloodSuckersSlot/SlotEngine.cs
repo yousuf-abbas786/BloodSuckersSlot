@@ -23,20 +23,7 @@ namespace BloodSuckersSlot
         {
             _config = config;
 
-            symbolConfigs = new Dictionary<string, SymbolConfig>
-            {
-                ["SYM0"] = new() { SymbolId = "SYM0", IsScatter = true, Payouts = new() { [2] = 2, [3] = 4, [4] = 25, [5] = 100 } },
-                ["SYM1"] = new() { SymbolId = "SYM1", IsWild = true, Payouts = new() { [2] = 0.5, [3] = 20, [4] = 200, [5] = 750 } },
-                ["SYM2"] = new() { SymbolId = "SYM2", IsBonus = true },
-                ["SYM3"] = new() { SymbolId = "SYM3", Payouts = new() { [3] = 5, [4] = 10, [5] = 50 } },
-                ["SYM4"] = new() { SymbolId = "SYM4", Payouts = new() { [3] = 5, [4] = 10, [5] = 50 } },
-                ["SYM5"] = new() { SymbolId = "SYM5", Payouts = new() { [3] = 1.5, [4] = 7.5, [5] = 25 } },
-                ["SYM6"] = new() { SymbolId = "SYM6", Payouts = new() { [3] = 1.5, [4] = 7.5, [5] = 25 } },
-                ["SYM7"] = new() { SymbolId = "SYM7", Payouts = new() { [3] = 0.5, [4] = 5, [5] = 10 } },
-                ["SYM8"] = new() { SymbolId = "SYM8", Payouts = new() { [3] = 0.5, [4] = 2.5, [5] = 10 } },
-                ["SYM9"] = new() { SymbolId = "SYM9", Payouts = new() { [3] = 0.2, [4] = 1.5, [5] = 7.5 } },
-                ["SYM10"] = new() { SymbolId = "SYM10", Payouts = new() { [3] = 0.2, [4] = 1.5, [5] = 7.5 } }
-            };
+            symbolConfigs = config.Symbols;
 
             InitializeCsvIfNeeded();
         }
