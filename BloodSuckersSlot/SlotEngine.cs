@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using BloodSuckersSlot.Mongo;
+
+using System.Text;
 
 namespace BloodSuckersSlot
 {
@@ -19,9 +21,18 @@ namespace BloodSuckersSlot
 
         private readonly Dictionary<string, SymbolConfig> symbolConfigs;
 
-        public SlotEngine(GameConfig config)
+        public SlotEngine(GameConfig config, GlobalConfig globalConfig,
+    ShopConfig shopConfig,
+    EngineConfig engineConfig,
+    PlayerSession playerSession,
+    ShopState shopState)
         {
             _config = config;
+            _globalConfig = globalConfig;
+            _shopConfig = shopConfig;
+            _engineConfig = engineConfig;
+            _playerSession = playerSession;
+            _shopState = shopState;
 
             symbolConfigs = config.Symbols;
 
@@ -32,11 +43,17 @@ namespace BloodSuckersSlot
         private const int MaxFreeSpinRetries = 10;
         private readonly bool _freeSpinRtpGuardEnabled = true;
 
+        private readonly GlobalConfig _globalConfig;
+        private readonly ShopConfig _shopConfig;
+        private readonly EngineConfig _engineConfig;
+        private readonly PlayerSession _playerSession;
+        private readonly ShopState _shopState;
+        double maxWin = 0;
 
 
         public SpinResult Spin(int betAmount)
         {
-
+            maxWin = _engineConfig.SlotMaxWinAmount;
 
             bool isFreeSpin = _freeSpinsRemaining > 0;
             double currentRtpBeforeSpin = GetActualRtp();
@@ -73,7 +90,7 @@ namespace BloodSuckersSlot
             Console.WriteLine($"\n───────────────────────");
             Console.WriteLine($"Spin #{spinCounter}");
 
-            var reelSets = GenerateRandomReelSets(50);
+            var reelSets = GenerateRandomReelSets(_engineConfig.NoOfReelSetsToChooseFrom);
 
             if (isFreeSpin)
             {
@@ -92,7 +109,7 @@ namespace BloodSuckersSlot
 
 
 
-            double rtpTarget = _config.RtpTarget;
+            double rtpTarget = _engineConfig.SlotRtpTarget;
 
             double widenFactor;
             if (currentRtpBeforeSpin < rtpTarget * 0.5)
@@ -199,8 +216,7 @@ namespace BloodSuckersSlot
                     totalSpinWin += rawBonusWin * bonusScale;
                 }
 
-                double maxMultiplier = 75.0; // Cap win to 75x of bet
-                totalSpinWin = Math.Min(totalSpinWin, betAmount * maxMultiplier);
+                totalSpinWin = Math.Min(totalSpinWin, maxWin);
 
                 if (spinCounter < 25 && totalSpinWin > betAmount * 15)
                 {
@@ -445,7 +461,7 @@ namespace BloodSuckersSlot
                 }
 
                 double spinWin = lineWin + wildWin + scatterWin + bonusWin;
-                spinWin = Math.Min(spinWin, betAmount * maxMultiplier); // safety cap
+                spinWin = Math.Min(spinWin, maxWin); // safety cap
 
                 if (spinWin > 0) winCount++;
                 totalWin += spinWin;
@@ -480,7 +496,7 @@ namespace BloodSuckersSlot
                     }
 
                     double freeSpinWin = (lineWin + wildWin) * 3 + scatterWin + bonusWin;
-                    freeSpinWin = Math.Min(freeSpinWin, betAmount * maxMultiplier); // cap free spin win
+                    freeSpinWin = Math.Min(freeSpinWin, maxWin); // cap free spin win
 
                     if (freeSpinWin > 0) winCount++;
                     totalWin += freeSpinWin;
@@ -513,8 +529,8 @@ namespace BloodSuckersSlot
 
         private bool IsSafeSet(ReelSet r, double currentRtp)
         {
-            double rtpTarget = _config.RtpTarget;
-            double hitRateTarget = _config.TargetHitRate;
+            double rtpTarget = _engineConfig.SlotRtpTarget;
+            double hitRateTarget = _engineConfig.SlotHitRateTarget;
 
             double widenFactor = currentRtp > rtpTarget
                 ? Math.Max(0.05, (rtpTarget - Math.Abs(currentRtp - rtpTarget)) * 0.3)
@@ -614,8 +630,8 @@ namespace BloodSuckersSlot
         private ReelSet ChooseWeighted(List<ReelSet> sets)
         {
             double currentRtp = GetActualRtp();
-            double rtpTarget = _config.RtpTarget;
-            double hitRateTarget = _config.TargetHitRate;
+            double rtpTarget = _engineConfig.SlotRtpTarget;
+            double hitRateTarget = _engineConfig.SlotHitRateTarget;
 
             double widenFactor = currentRtp > rtpTarget
                 ? Math.Max(0.05, (rtpTarget - Math.Abs(currentRtp - rtpTarget)) * 0.3)
@@ -725,13 +741,30 @@ namespace BloodSuckersSlot
 
             foreach (var set in sets)
             {
+                var weights = _engineConfig.FormulaWeights ?? _globalConfig.FormulaWeights;
+
                 double rtpDistance = Math.Abs(set.ExpectedRtp - rtpTarget);
                 double hitDistance = Math.Abs(set.EstimatedHitRate - hitRateTarget);
-                //double rewardPotential = set.ExpectedRtp * 1.4;  // boost for bigger wins
+                double volatility = EstimateVolatility(set);
                 double penalty = set.ExpectedRtp > rtpTarget ? Math.Pow(set.ExpectedRtp - rtpTarget, 2) * 4 : 0;
-                //double rewardBias = set.ExpectedRtp * set.ExpectedRtp; // favors high RTP sets
                 double safeBias = (set.ExpectedRtp >= 0.80 && set.ExpectedRtp <= 1.05) ? 1.2 : 1.0;
-                double combinedScore = safeBias / (rtpDistance * 0.6 + hitDistance * 0.4 + penalty + 0.001);
+
+                double rtpScore = 1.0 / (1.0 + rtpDistance);
+                double hitRateScore = 1.0 / (1.0 + hitDistance);
+                double playerScore = GetPlayerBalanceScore(); // [0–1]
+                double engineProfitScore = GetEngineProfitScore(); // [0–1]
+                double volatilityScore = 1.0 / (1.0 + volatility);
+
+                double combinedScore =
+                    weights.RtpWeight * rtpScore +
+                    weights.HitRateWeight * hitRateScore +
+                    weights.PlayerBalanceWeight * playerScore +
+                    weights.EngineProfitWeight * engineProfitScore +
+                    weights.VolatilityWeight * volatilityScore;
+
+                combinedScore *= safeBias;
+                combinedScore /= (penalty + 0.001);
+
                 weightedMap[set] = combinedScore;
                 totalWeight += combinedScore;
             }
@@ -1100,6 +1133,63 @@ namespace BloodSuckersSlot
                 EstimatedHitRate = 1.0
             };
         }
+
+        private double EstimateVolatility(ReelSet set)
+        {
+            // Estimate volatility as the standard deviation of win outcomes
+            bool wasSim = _isSimulationMode;
+            _isSimulationMode = true;
+
+            int samples = Math.Min(20, _engineConfig.NoOfReelSetsToChooseFrom / 10);
+            int betAmount = _playerSession.BetAmount;
+
+            List<double> wins = new();
+
+            for (int i = 0; i < samples; i++)
+            {
+                var grid = SpinReels(set.Reels);
+
+                double lineWin = EvaluatePaylines(grid, _config.Paylines, out _, out _);
+                double wildWin = EvaluateWildLineWins(grid, _config.Paylines, out _, out _);
+                double scatterWin = EvaluateScatters(grid, true, out _, out int scatterCount, betAmount);
+
+                double bonusWin = 0;
+                string unused = string.Empty;
+                if (CheckBonusTrigger(grid, _config.Paylines, scatterCount, ref unused))
+                {
+                    if (_rng.NextDouble() < 0.05)
+                        bonusWin = 10 + _rng.NextDouble() * 15;
+                }
+
+                double win = lineWin + wildWin + scatterWin + bonusWin;
+                wins.Add(win);
+            }
+
+            _isSimulationMode = wasSim;
+
+            double avg = wins.Average();
+            double stdDev = Math.Sqrt(wins.Sum(w => Math.Pow(w - avg, 2)) / wins.Count);
+
+            return stdDev / (avg + 1e-6); // Coefficient of variation
+        }
+
+        private double GetPlayerBalanceScore()
+        {
+            double balance = _playerSession?.Balance ?? 0;
+
+            // Normalize: assume 0–1000 as typical range
+            return Math.Min(balance / 1000.0, 1.0);
+        }
+
+        private double GetEngineProfitScore()
+        {
+            double profit = _shopState?.Profit ?? 0;
+
+            // Normalize: assume 0–5000 profit range for scoring
+            return Math.Max(0, Math.Min(profit / 5000.0, 1.0));
+        }
+
+
 
 
 
