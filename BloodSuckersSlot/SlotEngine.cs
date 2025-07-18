@@ -1,4 +1,6 @@
 ﻿using System.Text;
+using Microsoft.AspNetCore.SignalR.Client;
+using BloodSuckersSlot.Api.Models;
 
 namespace BloodSuckersSlot
 {
@@ -18,6 +20,8 @@ namespace BloodSuckersSlot
         private int _lastRecoverySpin = -999;
 
         private readonly Dictionary<string, SymbolConfig> symbolConfigs;
+        private HubConnection _hubConnection;
+        private bool _signalRReady = false;
 
         public SlotEngine(GameConfig config)
         {
@@ -26,6 +30,17 @@ namespace BloodSuckersSlot
             symbolConfigs = config.Symbols;
 
             InitializeCsvIfNeeded();
+
+            // Initialize SignalR client
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl("https://localhost:7021/rtpHub") // Updated port to match API
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.StartAsync().ContinueWith(task =>
+            {
+                _signalRReady = task.Status == TaskStatus.RanToCompletion;
+            });
         }
 
         private int _freeSpinRetryCount = 0;
@@ -273,6 +288,19 @@ namespace BloodSuckersSlot
                 chosenSet.ExpectedRtp
             );
 
+            if (_signalRReady)
+            {
+                var update = new RtpUpdate
+                {
+                    SpinNumber = spinCounter,
+                    ActualRtp = GetActualRtp(),
+                    TargetRtp = _config.RtpTarget,
+                    ActualHitRate = _hitCount * 1.0 / spinCounter,
+                    TargetHitRate = _config.TargetHitRate,
+                    Timestamp = DateTime.UtcNow
+                };
+                _hubConnection.InvokeAsync("BroadcastRtpUpdate", update);
+            }
 
 
             return new SpinResult

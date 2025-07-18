@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ApexCharts.Blazor" Version="0.9.6-alpha" />
+    <PackageReference Include="Blazorise" Version="1.8.0" />
+    <PackageReference Include="Blazorise.Bootstrap" Version="1.8.0" />
+    <PackageReference Include="Blazorise.Charts" Version="1.8.0" />
+    <PackageReference Include="Blazorise.Icons.FontAwesome" Version="1.8.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.18" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.18" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.7" />
+  </ItemGroup>
+
+</Project>

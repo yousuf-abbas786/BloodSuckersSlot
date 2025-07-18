@@ -3,7 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.11.35327.3
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BloodSuckersSlot", "BloodSuckersSlot\BloodSuckersSlot.csproj", "{409BB2C0-23E5-44C8-846A-046D31A26FA0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BloodSuckersSlot", "BloodSuckersSlot\BloodSuckersSlot.csproj", "{409BB2C0-23E5-44C8-846A-046D31A26FA0}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BloodSuckersSlot.Api", "BloodSuckersSlot.Api\BloodSuckersSlot.Api.csproj", "{7C58D33B-8E8E-4FAF-AD2A-74FCDFDD1CAF}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BloodSuckersSlot.Web", "BloodSuckersSlot.Web\BloodSuckersSlot.Web.csproj", "{5FB362A0-B529-4EEE-9C37-64421DA9BD07}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +19,14 @@ Global
 		{409BB2C0-23E5-44C8-846A-046D31A26FA0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{409BB2C0-23E5-44C8-846A-046D31A26FA0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{409BB2C0-23E5-44C8-846A-046D31A26FA0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C58D33B-8E8E-4FAF-AD2A-74FCDFDD1CAF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C58D33B-8E8E-4FAF-AD2A-74FCDFDD1CAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C58D33B-8E8E-4FAF-AD2A-74FCDFDD1CAF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C58D33B-8E8E-4FAF-AD2A-74FCDFDD1CAF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5FB362A0-B529-4EEE-9C37-64421DA9BD07}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5FB362A0-B529-4EEE-9C37-64421DA9BD07}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5FB362A0-B529-4EEE-9C37-64421DA9BD07}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5FB362A0-B529-4EEE-9C37-64421DA9BD07}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

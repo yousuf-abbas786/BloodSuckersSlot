@@ -1,0 +1,103 @@
+﻿@page "/"
+@using BloodSuckersSlot.Web.Models
+@using BloodSuckersSlot.Web.Services
+@inject RtpSignalRService RtpSignalRService
+@inject IJSRuntime JS
+
+<PageTitle>Real-Time RTP & Hit Rate Dashboard</PageTitle>
+
+<h3>Real-Time RTP & Hit Rate Dashboard</h3>
+
+<canvas id="rtpChart" width="800" height="400"></canvas>
+<canvas id="hitRateChart" width="800" height="400" style="margin-top:40px;"></canvas>
+
+@code {
+    private List<string> rtpLabels = new() { "A", "B", "C", "D", "E" };
+    private List<double> rtpData = new() { 0.5, 0.7, 0.6, 0.8, 0.9 };
+    private List<string> hitRateLabels = new() { "A", "B", "C", "D", "E" };
+    private List<double> hitRateData = new() { 0.4, 0.5, 0.6, 0.55, 0.65 };
+    private int spinCount = 5;
+    private bool chartsInitialized = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        RtpSignalRService.OnRtpUpdate += OnRtpUpdateReceived;
+        await RtpSignalRService.StartAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await RenderCharts();
+            chartsInitialized = true;
+        }
+    }
+
+    private async void OnRtpUpdateReceived(RtpUpdate update)
+    {
+        if (update == null)
+            return;
+        spinCount++;
+        rtpLabels.Add(update.SpinNumber.ToString());
+        hitRateLabels.Add(update.SpinNumber.ToString());
+        rtpData.Add(update.ActualRtp);
+        hitRateData.Add(update.ActualHitRate);
+        if (chartsInitialized)
+            await RenderCharts();
+    }
+
+    private async Task RenderCharts()
+    {
+        // RTP Chart
+        await JS.InvokeVoidAsync("eval", $@"
+            if (window.Chart) {{
+                if(window.rtpChartInstance) window.rtpChartInstance.destroy();
+                var ctx = document.getElementById('rtpChart').getContext('2d');
+                window.rtpChartInstance = new Chart(ctx, {{
+                    type: 'line',
+                    data: {{
+                        labels: {ToJsArray(rtpLabels)},
+                        datasets: [{{
+                            label: 'RTP',
+                            data: {ToJsArray(rtpData)},
+                            borderColor: 'blue',
+                            backgroundColor: 'rgba(0,0,255,0.1)',
+                            fill: false
+                        }}]
+                    }},
+                    options: {{ responsive: true }}
+                }});
+            }}
+        ");
+        // Hit Rate Chart
+        await JS.InvokeVoidAsync("eval", $@"
+            if (window.Chart) {{
+                if(window.hitRateChartInstance) window.hitRateChartInstance.destroy();
+                var ctx = document.getElementById('hitRateChart').getContext('2d');
+                window.hitRateChartInstance = new Chart(ctx, {{
+                    type: 'line',
+                    data: {{
+                        labels: {ToJsArray(hitRateLabels)},
+                        datasets: [{{
+                            label: 'Hit Rate',
+                            data: {ToJsArray(hitRateData)},
+                            borderColor: 'green',
+                            backgroundColor: 'rgba(0,255,0,0.1)',
+                            fill: false
+                        }}]
+                    }},
+                    options: {{ responsive: true }}
+                }});
+            }}
+        ");
+    }
+
+    private string ToJsArray(IEnumerable<double> data) => "[" + string.Join(",", data) + "]";
+    private string ToJsArray(IEnumerable<string> data) => "[" + string.Join(",", data.Select(x => $"'" + x + "'")) + "]";
+
+    public void Dispose()
+    {
+        RtpSignalRService.OnRtpUpdate -= OnRtpUpdateReceived;
+    }
+}
