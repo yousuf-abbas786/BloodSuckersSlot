@@ -19,6 +19,7 @@ namespace BloodSuckersSlot.Web.Services
 
             _hubConnection.On<RtpUpdate>("ReceiveRtpUpdate", (update) =>
             {
+                Console.WriteLine($"[SignalR] Received update: Spin={update.SpinNumber}, RTP={update.ActualRtp}");
                 OnRtpUpdate?.Invoke(update);
             });
         }

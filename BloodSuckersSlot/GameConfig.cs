@@ -4,14 +4,147 @@ namespace BloodSuckersSlot
 {
     public class GameConfig
     {
+        // Core RTP and Hit Rate Targets
         public double RtpTarget { get; set; } = 0.88; // Default target RTP (88%)
         public double TargetHitRate { get; set; } = 0.35; // Target hit rate (35%) - adjustable
-        public int BaseBetForFreeSpins { get; set; } = 25; // Used when free spins don’t cost a bet
+        
+        // RTP Control Parameters
+        public double RtpTolerance { get; set; } = 0.05; // ±5% tolerance around target
+        public double MaxRtpPerSet { get; set; } = 1.3; // Maximum RTP allowed per reel set
+        public double MinRtpPerSet { get; set; } = 0.5; // Minimum RTP allowed per reel set
+        
+        // Hit Rate Control Parameters
+        public double HitRateTolerance { get; set; } = 0.15; // ±15% tolerance around target
+        public double MaxHitRatePerSet { get; set; } = 0.8; // Maximum hit rate allowed per reel set
+        public double MinHitRatePerSet { get; set; } = 0.1; // Minimum hit rate allowed per reel set
+        
+        // RTP Recovery Settings
+        public double HighRtpThreshold { get; set; } = 1.05; // RTP > 105% triggers aggressive low RTP selection
+        public double CriticalRtpThreshold { get; set; } = 1.20; // RTP > 120% triggers very aggressive low RTP selection
+        public double LowRtpThreshold { get; set; } = 0.75; // RTP < 75% triggers high RTP selection
+        
+        // Reel Set Generation
+        public int ReelSetsToGenerate { get; set; } = 50; // Number of reel sets to generate per spin
+        public int MonteCarloSpins { get; set; } = 1000; // Number of spins for RTP estimation
+        
+        // Safety and Filtering
+        public bool EnableScatterGuards { get; set; } = true; // Enable scatter flood protection
+        public bool EnableWildGuards { get; set; } = true; // Enable wild flood protection
+        public int MaxScattersPerReelSet { get; set; } = 6; // Maximum scatters allowed per reel set
+        public int MaxWildsPerReelSet { get; set; } = 7; // Maximum wilds allowed per reel set
+        
+        // Free Spins Configuration
+        public int BaseBetForFreeSpins { get; set; } = 25; // Used when free spins don't cost a bet
+        public int MaxFreeSpinsPerSession { get; set; } = 50; // Maximum free spins per session
+        
+        // Paylines
         public List<int[]> Paylines { get; set; } = new(); // List of 5-column payline patterns
-        public double MaxRtpPerSet { get; set; } = 1.3;
-
+        
+        // Symbol Configuration
         public Dictionary<string, SymbolConfig> Symbols { get; set; }
-
+        
+        // Debug and Logging
+        public bool EnableDetailedLogging { get; set; } = true; // Enable detailed console logging
+        public bool EnableRtpDebugging { get; set; } = false; // Enable RTP debugging information
+        
+        // Constructor with common presets
+        public GameConfig()
+        {
+            // Initialize with default values
+        }
+        
+        // Preset configurations for different game types
+        public static GameConfig CreateHighVolatility()
+        {
+            return new GameConfig
+            {
+                RtpTarget = 0.88,
+                TargetHitRate = 0.25, // Lower hit rate for high volatility
+                RtpTolerance = 0.08, // Wider tolerance
+                HitRateTolerance = 0.20,
+                HighRtpThreshold = 1.10,
+                CriticalRtpThreshold = 1.25,
+                MaxRtpPerSet = 1.5,
+                MinRtpPerSet = 0.4
+            };
+        }
+        
+        public static GameConfig CreateLowVolatility()
+        {
+            return new GameConfig
+            {
+                RtpTarget = 0.88,
+                TargetHitRate = 0.45, // Higher hit rate for low volatility
+                RtpTolerance = 0.03, // Tighter tolerance
+                HitRateTolerance = 0.10,
+                HighRtpThreshold = 1.03,
+                CriticalRtpThreshold = 1.15,
+                MaxRtpPerSet = 1.2,
+                MinRtpPerSet = 0.6
+            };
+        }
+        
+        public static GameConfig CreateBalanced()
+        {
+            return new GameConfig
+            {
+                RtpTarget = 0.88,
+                TargetHitRate = 0.35, // Balanced hit rate
+                RtpTolerance = 0.05,
+                HitRateTolerance = 0.15,
+                HighRtpThreshold = 1.05,
+                CriticalRtpThreshold = 1.20,
+                MaxRtpPerSet = 1.3,
+                MinRtpPerSet = 0.5
+            };
+        }
+        
+        // Method to validate configuration
+        public bool Validate()
+        {
+            if (RtpTarget <= 0 || RtpTarget > 1.0)
+            {
+                Console.WriteLine("[CONFIG ERROR] RtpTarget must be between 0 and 1.0");
+                return false;
+            }
+            
+            if (TargetHitRate <= 0 || TargetHitRate > 1.0)
+            {
+                Console.WriteLine("[CONFIG ERROR] TargetHitRate must be between 0 and 1.0");
+                return false;
+            }
+            
+            if (MaxRtpPerSet <= MinRtpPerSet)
+            {
+                Console.WriteLine("[CONFIG ERROR] MaxRtpPerSet must be greater than MinRtpPerSet");
+                return false;
+            }
+            
+            if (MaxHitRatePerSet <= MinHitRatePerSet)
+            {
+                Console.WriteLine("[CONFIG ERROR] MaxHitRatePerSet must be greater than MinHitRatePerSet");
+                return false;
+            }
+            
+            return true;
+        }
+        
+        // Method to print current configuration
+        public void PrintConfiguration()
+        {
+            Console.WriteLine("=== GAME CONFIGURATION ===");
+            Console.WriteLine($"RTP Target: {RtpTarget:P1}");
+            Console.WriteLine($"Hit Rate Target: {TargetHitRate:P1}");
+            Console.WriteLine($"RTP Tolerance: ±{RtpTolerance:P1}");
+            Console.WriteLine($"Hit Rate Tolerance: ±{HitRateTolerance:P1}");
+            Console.WriteLine($"High RTP Threshold: {HighRtpThreshold:P1}");
+            Console.WriteLine($"Critical RTP Threshold: {CriticalRtpThreshold:P1}");
+            Console.WriteLine($"Low RTP Threshold: {LowRtpThreshold:P1}");
+            Console.WriteLine($"RTP Range: {MinRtpPerSet:P1} - {MaxRtpPerSet:P1}");
+            Console.WriteLine($"Hit Rate Range: {MinHitRatePerSet:P1} - {MaxHitRatePerSet:P1}");
+            Console.WriteLine($"Reel Sets Generated: {ReelSetsToGenerate}");
+            Console.WriteLine($"Monte Carlo Spins: {MonteCarloSpins}");
+            Console.WriteLine("========================");
+        }
     }
-
 }

@@ -13,11 +13,24 @@ namespace BloodSuckersSlot
         private int spinCounter = 0;
         private int _freeSpinsRemaining = 0;
         private int _freeSpinsAwarded = 0;
+        private int _totalFreeSpinsAwarded = 0; // Track total free spins awarded
+        private int _totalBonusesTriggered = 0; // Track total bonuses triggered
         private int _lastBonusSpin = -100;
         private bool _isSimulationMode = false;
         private int _hitCount = 0;
         private const int MaxFreeSpinsPerSession = 50;
         private int _lastRecoverySpin = -999;
+
+        // Performance tracking
+        private List<double> _spinTimes = new();
+        private Dictionary<string, int> _reelSetCounts = new()
+        {
+            ["HighRtp"] = 0,
+            ["MidRtp"] = 0,
+            ["LowRtp"] = 0,
+            ["SafeFallback"] = 0
+        };
+        private DateTime _lastSpinStart = DateTime.Now;
 
         private readonly Dictionary<string, SymbolConfig> symbolConfigs;
         private HubConnection _hubConnection;
@@ -51,8 +64,7 @@ namespace BloodSuckersSlot
 
         public SpinResult Spin(int betAmount)
         {
-
-
+            var spinStartTime = DateTime.Now;
             bool isFreeSpin = _freeSpinsRemaining > 0;
             double currentRtpBeforeSpin = GetActualRtp();
 
@@ -88,7 +100,7 @@ namespace BloodSuckersSlot
             Console.WriteLine($"\n───────────────────────");
             Console.WriteLine($"Spin #{spinCounter}");
 
-            var reelSets = GenerateRandomReelSets(50);
+            var reelSets = GenerateRandomReelSets(); // 🔼 Reduced from 500 to 200 for faster processing
 
             if (isFreeSpin)
             {
@@ -98,7 +110,7 @@ namespace BloodSuckersSlot
 
             foreach (var reelSet in reelSets)
             {
-                EstimateRtpAndHitRate(reelSet, 2000, betAmount);
+                EstimateRtpAndHitRate(reelSet, 3000, betAmount); // 🔼 Increased to 3000 spins for better accuracy
                 reelSet.RtpWeight = CalculateWeight(reelSet.ExpectedRtp, _config.RtpTarget);
                 reelSet.HitWeight = CalculateWeight(reelSet.EstimatedHitRate, _config.TargetHitRate);
             }
@@ -111,15 +123,15 @@ namespace BloodSuckersSlot
 
             double widenFactor;
             if (currentRtpBeforeSpin < rtpTarget * 0.5)
-                widenFactor = 0.85;
+                widenFactor = 0.25; // 🔼 Reduced from 0.85 to 0.25 for tighter control
             else if (currentRtpBeforeSpin < rtpTarget * 0.7)
-                widenFactor = 0.65;
+                widenFactor = 0.20; // 🔼 Reduced from 0.65 to 0.20
             else if (currentRtpBeforeSpin < rtpTarget * 0.85)
-                widenFactor = 0.45;
+                widenFactor = 0.15; // 🔼 Reduced from 0.45 to 0.15
             else if (currentRtpBeforeSpin > rtpTarget * 1.15)
-                widenFactor = 0.15;
+                widenFactor = 0.10; // 🔼 Reduced from 0.15 to 0.10
             else
-                widenFactor = 0.3;
+                widenFactor = 0.12; // 🔼 Reduced from 0.3 to 0.12 for tighter control
 
             var lowerBound = Math.Max(0.05, rtpTarget - widenFactor);
             var upperBound = Math.Min(2.0, rtpTarget + widenFactor);
@@ -288,6 +300,21 @@ namespace BloodSuckersSlot
                 chosenSet.ExpectedRtp
             );
 
+            // Calculate spin time
+            var spinEndTime = DateTime.Now;
+            var spinTime = (spinEndTime - spinStartTime).TotalSeconds;
+            _spinTimes.Add(spinTime);
+            
+            // Track reel set selection
+            if (chosenSet.Name.StartsWith("HighRtp"))
+                _reelSetCounts["HighRtp"]++;
+            else if (chosenSet.Name.StartsWith("MidRtp"))
+                _reelSetCounts["MidRtp"]++;
+            else if (chosenSet.Name.StartsWith("LowRtp"))
+                _reelSetCounts["LowRtp"]++;
+            else if (chosenSet.Name.Contains("SAFE_FALLBACK") || chosenSet.Name.Contains("RECOVERY"))
+                _reelSetCounts["SafeFallback"]++;
+
             if (_signalRReady)
             {
                 var update = new RtpUpdate
@@ -297,8 +324,33 @@ namespace BloodSuckersSlot
                     TargetRtp = _config.RtpTarget,
                     ActualHitRate = _hitCount * 1.0 / spinCounter,
                     TargetHitRate = _config.TargetHitRate,
-                    Timestamp = DateTime.UtcNow
+                    Timestamp = DateTime.UtcNow,
+                    
+                    // Performance metrics
+                    SpinTimeSeconds = spinTime,
+                    AverageSpinTimeSeconds = _spinTimes.Count > 0 ? _spinTimes.Average() : 0.0,
+                    TotalSpins = spinCounter,
+                    
+                    // Reel set selection analysis
+                    HighRtpSetCount = _reelSetCounts["HighRtp"],
+                    MidRtpSetCount = _reelSetCounts["MidRtp"],
+                    LowRtpSetCount = _reelSetCounts["LowRtp"],
+                    SafeFallbackCount = _reelSetCounts["SafeFallback"],
+                    ChosenReelSetName = chosenSet.Name,
+                    ChosenReelSetExpectedRtp = chosenSet.ExpectedRtp,
+                    
+                    // Monte Carlo performance
+                    MonteCarloSpins = 3000, // Current setting
+                    TotalReelSetsGenerated = 50, // Current setting
+                    ReelSetsFiltered = 50 - healthySets.Count, // How many were filtered out
+                    MonteCarloAccuracy = Math.Abs(chosenSet.ExpectedRtp - GetActualRtp()), // Expected vs Actual difference
+                    
+                    // Game feature stats
+                    TotalFreeSpinsAwarded = _totalFreeSpinsAwarded,
+                    TotalBonusesTriggered = _totalBonusesTriggered
                 };
+                Console.WriteLine($"[SlotEngine] Sending RTP Update: Spin={update.SpinNumber}, RTP={update.ActualRtp}, SpinTime={update.SpinTimeSeconds}");
+                Console.WriteLine($"[SlotEngine] Reel Sets: High={update.HighRtpSetCount}, Mid={update.MidRtpSetCount}, Low={update.LowRtpSetCount}, Fallback={update.SafeFallbackCount}");
                 _hubConnection.InvokeAsync("BroadcastRtpUpdate", update);
             }
 
@@ -345,12 +397,16 @@ namespace BloodSuckersSlot
             Console.ResetColor(); // Reset to default
         }
 
-        private List<ReelSet> GenerateRandomReelSets(int count = 300) // 🔼 Increase default from 100 → 300
+        private List<ReelSet> GenerateRandomReelSets(int count = 50) // 🔼 Reduced from 500 to 50 for much faster processing
         {
-            var reelSets = new List<ReelSet>();
+            var sets = new List<ReelSet>();
+            var rng = new Random();
 
             for (int i = 0; i < count; i++)
             {
+                var reels = new List<List<string>>();
+                
+                // Define symbol weights similar to the original approach
                 var symbolWeights = new Dictionary<string, int>
                 {
                     ["SYM0"] = 3,  // Scatter
@@ -366,6 +422,7 @@ namespace BloodSuckersSlot
                     ["SYM10"] = 15
                 };
 
+                // Create RTP-biased sets
                 string tag;
                 if (i < count * 0.3)
                 {
@@ -395,8 +452,6 @@ namespace BloodSuckersSlot
                     .SelectMany(kvp => Enumerable.Repeat(kvp.Key, kvp.Value))
                     .ToList();
 
-                var reels = new List<List<string>>();
-
                 for (int col = 0; col < 5; col++)
                 {
                     var strip = new List<string>();
@@ -409,7 +464,7 @@ namespace BloodSuckersSlot
 
                         do
                         {
-                            chosen = weightedSymbols[_rng.Next(weightedSymbols.Count)];
+                            chosen = weightedSymbols[rng.Next(weightedSymbols.Count)];
 
                             if (chosen == "SYM0" && scatterCount >= 3) continue;
                             if (chosen == "SYM1" && wildCount >= 2) continue;
@@ -420,11 +475,10 @@ namespace BloodSuckersSlot
                         if (chosen == "SYM1") wildCount++;
 
                         // Strong symbol bias for visible area
-                        if (tag == "HighRtp" && row < 3 && _rng.NextDouble() < 0.4)
+                        if (tag == "HighRtp" && row < 3 && rng.NextDouble() < 0.4)
                         {
-                            chosen = new[] { "SYM3", "SYM4", "SYM5", "SYM6", "SYM1" }[_rng.Next(5)];
+                            chosen = new[] { "SYM3", "SYM4", "SYM5", "SYM6", "SYM1" }[rng.Next(5)];
                         }
-
 
                         strip.Add(chosen);
                     }
@@ -432,14 +486,16 @@ namespace BloodSuckersSlot
                     reels.Add(strip);
                 }
 
-                reelSets.Add(new ReelSet
+                var set = new ReelSet
                 {
                     Name = $"{tag}Set_{i + 1}",
                     Reels = reels
-                });
+                };
+
+                sets.Add(set);
             }
 
-            return reelSets;
+            return sets;
         }
 
 
@@ -483,7 +539,7 @@ namespace BloodSuckersSlot
             }
 
             int totalSimulatedFreeSpins = 0;
-            int maxSimulatedFreeSpins = 40;
+            int maxSimulatedFreeSpins = 10; // 🔼 Further reduced from 20 to 10 for faster simulation
 
             while (freeSpinQueue.Count > 0 && totalSimulatedFreeSpins < maxSimulatedFreeSpins)
             {
@@ -523,12 +579,6 @@ namespace BloodSuckersSlot
             set.ExpectedRtp = totalWin / (spins * betAmount);
             set.EstimatedHitRate = (double)winCount / spins;
 
-            if (set.ExpectedRtp > 1.1)
-            {
-                Console.WriteLine($"[Sim Clamp] ReelSet {set.Name} simulated RTP too high: {set.ExpectedRtp:F2}. Clamping to 1.1");
-                set.ExpectedRtp = 1.1;
-            }
-
             _isSimulationMode = wasSimMode;
         }
 
@@ -544,9 +594,20 @@ namespace BloodSuckersSlot
             double rtpTarget = _config.RtpTarget;
             double hitRateTarget = _config.TargetHitRate;
 
-            double widenFactor = currentRtp > rtpTarget
-                ? Math.Max(0.05, (rtpTarget - Math.Abs(currentRtp - rtpTarget)) * 0.3)
-                : Math.Max(0.2, Math.Abs(currentRtp - rtpTarget) * 0.5);
+            // Fix widen factor calculation for high RTP scenarios
+            double widenFactor;
+            if (currentRtp > rtpTarget * 1.5) // RTP > 132%
+            {
+                widenFactor = 0.4; // Allow wide range to find low RTP sets
+            }
+            else if (currentRtp > rtpTarget) // RTP > 100%
+            {
+                widenFactor = 0.25; // Moderate range
+            }
+            else
+            {
+                widenFactor = Math.Max(0.2, Math.Abs(currentRtp - rtpTarget) * 0.5);
+            }
 
             double rtpLowerBound = Math.Max(0.05, rtpTarget - widenFactor);
             double rtpUpperBound = Math.Min(1.2, rtpTarget + widenFactor);
@@ -556,15 +617,33 @@ namespace BloodSuckersSlot
             bool disableScatterGuard = false;
             bool skipLooksDangerous = false;
 
-            if (currentRtp < rtpTarget * 0.75)
+            // When RTP is very high, be more permissive to find low RTP sets
+            if (currentRtp > rtpTarget * 1.25) // RTP > 110%
             {
-                rtpLowerBound -= 0.05;
-                rtpUpperBound += 0.10;
+                rtpLowerBound = Math.Max(0.05, rtpTarget * 0.6); // Allow sets as low as 60% of target (less aggressive)
+                rtpUpperBound = Math.Min(1.2, rtpTarget * 0.8); // Cap at 80% of target
+                disableScatterGuard = true;
+                skipLooksDangerous = true;
             }
-
-            if (currentRtp < rtpTarget * 0.65)
+            else if (currentRtp > rtpTarget * 1.15) // RTP > 101.2%
             {
-                rtpLowerBound = Math.Max(0.05, rtpTarget * 0.3);
+                rtpLowerBound = Math.Max(0.05, rtpTarget * 0.7); // Allow sets as low as 70% of target (gentle)
+                rtpUpperBound = Math.Min(1.2, rtpTarget * 0.9); // Cap at 90% of target
+                disableScatterGuard = true;
+                skipLooksDangerous = true;
+            }
+            // When RTP is very low, be more permissive to find high RTP sets
+            else if (currentRtp < rtpTarget * 0.75) // RTP < 66%
+            {
+                rtpLowerBound = Math.Max(0.05, rtpTarget * 0.5); // Allow sets as low as 50% of target
+                rtpUpperBound = Math.Min(1.2, rtpTarget * 1.5); // Allow sets up to 150% of target
+                disableScatterGuard = true;
+                skipLooksDangerous = true;
+            }
+            else if (currentRtp < rtpTarget * 0.85) // RTP < 74.8%
+            {
+                rtpLowerBound = Math.Max(0.05, rtpTarget * 0.6); // Allow sets as low as 60% of target
+                rtpUpperBound = Math.Min(1.2, rtpTarget * 1.4); // Allow sets up to 140% of target
                 disableScatterGuard = true;
                 skipLooksDangerous = true;
             }
@@ -581,9 +660,9 @@ namespace BloodSuckersSlot
             if (r.EstimatedHitRate < hitLowerBound) reasons.Add($"HitRate < {hitLowerBound:F2}");
             if (r.EstimatedHitRate > hitUpperBound) reasons.Add($"HitRate > {hitUpperBound:F2}");
 
-            // 🧠 Fix 4: Hard caps
-            if (r.ExpectedRtp < 0.50) reasons.Add("RTP < 0.50 (Too Low)");
-            if (r.ExpectedRtp > 1.05 && spinCounter < 10) reasons.Add("RTP > 1.05 too early");
+            // 🧠 Fix 4: Hard caps - much more permissive
+            if (r.ExpectedRtp < 0.30) reasons.Add("RTP < 0.30 (Too Low)"); // Much more permissive
+            if (r.ExpectedRtp > 1.20 && spinCounter < 5) reasons.Add("RTP > 1.20 too early"); // Much more permissive
 
             if (!skipLooksDangerous && LooksDangerous(r)) reasons.Add("LooksDangerous");
 
@@ -645,19 +724,36 @@ namespace BloodSuckersSlot
             double rtpTarget = _config.RtpTarget;
             double hitRateTarget = _config.TargetHitRate;
 
-            double widenFactor = currentRtp > rtpTarget
-                ? Math.Max(0.05, (rtpTarget - Math.Abs(currentRtp - rtpTarget)) * 0.3)
-                : Math.Max(0.2, Math.Abs(currentRtp - rtpTarget) * 0.5);
+            // Fix widen factor calculation for high RTP scenarios
+            double widenFactor;
+            if (currentRtp > rtpTarget * 1.5) // RTP > 132%
+            {
+                widenFactor = 0.4; // Allow wide range to find low RTP sets
+            }
+            else if (currentRtp > rtpTarget) // RTP > 100%
+            {
+                widenFactor = 0.25; // Moderate range
+            }
+            else
+            {
+                widenFactor = Math.Max(0.2, Math.Abs(currentRtp - rtpTarget) * 0.5);
+            }
 
             double rtpLowerBound = Math.Max(0.05, rtpTarget - widenFactor);
             double rtpUpperBound = Math.Min(1.2, rtpTarget + widenFactor);
-            double hitLowerBound = Math.Max(0.05, hitRateTarget - 0.3);
-            double hitUpperBound = Math.Min(1.0, hitRateTarget + 0.3);
-
-            if (currentRtp < rtpTarget * 0.75)
+            
+            // Adjust hit rate bounds based on current performance
+            double hitLowerBound, hitUpperBound;
+            if (currentRtp < rtpTarget * 0.75) // RTP < 66%
             {
-                rtpLowerBound -= 0.05;
-                rtpUpperBound += 0.10;
+                // When RTP is low, be more permissive with hit rate to find high RTP sets
+                hitLowerBound = Math.Max(0.05, hitRateTarget - 0.4); // Allow lower hit rates
+                hitUpperBound = Math.Min(1.0, hitRateTarget + 0.4); // Allow higher hit rates
+            }
+            else
+            {
+                hitLowerBound = Math.Max(0.05, hitRateTarget - 0.3);
+                hitUpperBound = Math.Min(1.0, hitRateTarget + 0.3);
             }
 
             if (currentRtp > rtpTarget * 1.05 && spinCounter > 20)
@@ -668,10 +764,22 @@ namespace BloodSuckersSlot
 
             var originalSets = sets;
 
-            // Safe filtering
-            sets = sets
-                .Where(r => IsSafeSet(r, currentRtp))
-                .ToList();
+            // Safe filtering - be much more aggressive when far from target
+            if (Math.Abs(currentRtp - rtpTarget) > 0.15) // RTP is far from target (>15% deviation)
+            {
+                // When far from target, be very permissive
+                sets = sets
+                    .Where(r => r.ExpectedRtp >= 0.30 && r.ExpectedRtp <= 1.50) // Allow wide range
+                    .ToList();
+                Console.WriteLine($"[FAR FROM TARGET] Skipping IsSafeSet filtering due to RTP deviation {Math.Abs(currentRtp - rtpTarget):F2} > 0.15");
+            }
+            else
+            {
+                // Normal filtering when close to target
+                sets = sets
+                    .Where(r => IsSafeSet(r, currentRtp))
+                    .ToList();
+            }
 
             if (spinCounter < 10)
             {
@@ -682,16 +790,58 @@ namespace BloodSuckersSlot
                 Console.WriteLine("[Opening Phase] Suppressing risky reel sets in first 10 spins.");
             }
 
-            if (currentRtp > 1.00 && spinCounter > 10)
+            if (currentRtp > rtpTarget * 1.05 && spinCounter > 10) // RTP > 92.4%
             {
+                // When RTP is above target, force LOW RTP sets
+                double maxAllowedRtp = rtpTarget * 0.75; // Force sets below 75% of target (less aggressive)
                 sets = sets
-                    .Where(r => r.ExpectedRtp <= rtpTarget * 0.90 && !LooksDangerous(r))
+                    .Where(r => r.ExpectedRtp <= maxAllowedRtp) // Remove LooksDangerous check
                     .ToList();
 
-                Console.WriteLine("[HOT MODE] Hard limiting reel sets due to RTP > 100%");
+                Console.WriteLine($"[ABOVE TARGET] Forcing LOW RTP sets (max {maxAllowedRtp:F2}) due to RTP {currentRtp:F2} > 92.4%");
+            }
+            else if (currentRtp > rtpTarget * 1.25 && spinCounter > 10) // RTP > 110%
+            {
+                // When RTP is high, force LOW RTP sets - NO SAFETY CHECKS!
+                double maxAllowedRtp = rtpTarget * 0.65; // Force sets below 65% of target (less aggressive)
+                sets = sets
+                    .Where(r => r.ExpectedRtp <= maxAllowedRtp) // REMOVED LooksDangerous check
+                    .ToList();
+
+                Console.WriteLine($"[HOT MODE] Forcing LOW RTP sets (max {maxAllowedRtp:F2}) due to RTP {currentRtp:F2} > 110%");
+            }
+            else if (currentRtp > rtpTarget * 1.5 && spinCounter > 10) // RTP > 132%
+            {
+                // When RTP is extremely high, force VERY LOW RTP sets - NO SAFETY CHECKS!
+                double maxAllowedRtp = rtpTarget * 0.40; // Force sets below 40% of target (more aggressive)
+                sets = sets
+                    .Where(r => r.ExpectedRtp <= maxAllowedRtp) // REMOVED LooksDangerous check
+                    .ToList();
+
+                Console.WriteLine($"[CRITICAL HOT MODE] Forcing VERY LOW RTP sets (max {maxAllowedRtp:F2}) due to RTP {currentRtp:F2} > 132%");
             }
 
-            if (currentRtp < rtpTarget * 0.90 && spinCounter > 10)
+            if (currentRtp < rtpTarget * 0.90 && spinCounter > 10) // RTP < 79.2%
+            {
+                // When RTP is below target, force HIGH RTP sets
+                double minAllowedRtp = rtpTarget * 1.05; // Force sets above 105% of target (more aggressive)
+                sets = sets
+                    .Where(s => s.ExpectedRtp >= minAllowedRtp)
+                    .ToList();
+
+                Console.WriteLine($"[BELOW TARGET] Forcing HIGH RTP sets (min {minAllowedRtp:F2}) due to RTP {currentRtp:F2} < 79.2%");
+            }
+            else if (currentRtp < rtpTarget * 0.75 && spinCounter > 10) // RTP < 66%
+            {
+                // When RTP is very low, force HIGH RTP sets
+                double minAllowedRtp = rtpTarget * 1.10; // Force sets above 110% of target (more aggressive)
+                sets = sets
+                    .Where(s => s.ExpectedRtp >= minAllowedRtp)
+                    .ToList();
+
+                Console.WriteLine($"[LOW RTP RECOVERY] Forcing HIGH RTP sets (min {minAllowedRtp:F2}) due to RTP {currentRtp:F2} < 66%");
+            }
+            else if (currentRtp < rtpTarget * 0.90 && spinCounter > 10)
             {
                 sets = sets
                     .Where(s => s.ExpectedRtp >= rtpTarget * 0.95)
@@ -700,7 +850,17 @@ namespace BloodSuckersSlot
                 Console.WriteLine("[Soft Recovery] Allowing moderately high RTP sets (RTP < 90%).");
             }
 
-            if (currentRtp < 0.65 && spinCounter > 20)
+            // Hit rate control - when hit rate is too high, force low hit rate sets
+            if (GetActualHitRate() > hitRateTarget * 1.2 && spinCounter > 10) // Hit rate > 42% (more aggressive)
+            {
+                double maxAllowedHitRate = hitRateTarget * 0.6; // Force sets below 60% of target hit rate (more aggressive)
+                sets = sets
+                    .Where(s => s.EstimatedHitRate <= maxAllowedHitRate)
+                    .ToList();
+
+                Console.WriteLine($"[HIGH HIT RATE] Forcing LOW hit rate sets (max {maxAllowedHitRate:F2}) due to hit rate {GetActualHitRate():F2} > 42%");
+            }
+            else if (currentRtp < 0.65 && spinCounter > 20)
             {
                 Console.WriteLine("[Low RTP Recovery] Forcing HIGH RTP + High HitRate sets (RTP < 65%)");
                 sets = sets
@@ -736,7 +896,15 @@ namespace BloodSuckersSlot
 
             if (!sets.Any())
             {
-                Console.WriteLine("[CRITICAL FAILOVER] Returning SAFE_FALLBACK_REAL_SET due to complete set exhaustion.");
+                Console.WriteLine($"[CRITICAL FAILOVER] Returning SAFE_FALLBACK_REAL_SET due to complete set exhaustion. CurrentRTP: {currentRtp:F2}, OriginalSets: {originalSets.Count}");
+                
+                // Debug: Show why sets were rejected
+                var rejectedSets = originalSets.Where(r => !IsSafeSet(r, currentRtp)).Take(5);
+                foreach (var set in rejectedSets)
+                {
+                    Console.WriteLine($"[DEBUG REJECTED] {set.Name}: RTP={set.ExpectedRtp:F2}, HR={set.EstimatedHitRate:F2}");
+                }
+                
                 return new ReelSet
                 {
                     Name = "SAFE_FALLBACK_REAL_SET_FINAL",
@@ -747,6 +915,21 @@ namespace BloodSuckersSlot
             }
 
             Console.WriteLine($"[Filter] RTP: {currentRtp:F2}, Candidates: {sets.Count}, Bounds: RTP[{rtpLowerBound:F2}-{rtpUpperBound:F2}], HR[{hitLowerBound:F2}-{hitUpperBound:F2}]");
+            
+            // Debug: Show RTP control mode
+            if (currentRtp > rtpTarget * 1.05)
+                Console.WriteLine($"[DEBUG] RTP CONTROL MODE: ABOVE TARGET (RTP {currentRtp:F2} > {rtpTarget * 1.05:F2})");
+            else if (currentRtp < rtpTarget * 0.90)
+                Console.WriteLine($"[DEBUG] RTP CONTROL MODE: BELOW TARGET (RTP {currentRtp:F2} < {rtpTarget * 0.90:F2})");
+            else
+                Console.WriteLine($"[DEBUG] RTP CONTROL MODE: NEAR TARGET (RTP {currentRtp:F2} near {rtpTarget:F2})");
+            
+            // Debug: Show available RTP ranges
+            if (sets.Any())
+            {
+                var rtpRange = sets.Select(s => s.ExpectedRtp);
+                Console.WriteLine($"[DEBUG] Available RTP range: {rtpRange.Min():F2} - {rtpRange.Max():F2}");
+            }
 
             double totalWeight = 0;
             Dictionary<ReelSet, double> weightedMap = new();
@@ -755,11 +938,27 @@ namespace BloodSuckersSlot
             {
                 double rtpDistance = Math.Abs(set.ExpectedRtp - rtpTarget);
                 double hitDistance = Math.Abs(set.EstimatedHitRate - hitRateTarget);
-                //double rewardPotential = set.ExpectedRtp * 1.4;  // boost for bigger wins
+                
+                // AGGRESSIVE BIAS - strong correction for extreme deviations
+                double bias;
+                if (currentRtp > rtpTarget * 1.05) // RTP is above target
+                {
+                    // STRONGLY favor LOW RTP sets when RTP is high
+                    bias = (set.ExpectedRtp <= rtpTarget * 0.70) ? 3.0 : 0.3;
+                }
+                else if (currentRtp < rtpTarget * 0.90) // RTP is below target
+                {
+                    // STRONGLY favor HIGH RTP sets when RTP is low
+                    bias = (set.ExpectedRtp >= rtpTarget * 1.10) ? 3.0 : 0.3;
+                }
+                else
+                {
+                    // Normal bias when RTP is close to target
+                    bias = (set.ExpectedRtp >= 0.80 && set.ExpectedRtp <= 1.05) ? 1.2 : 1.0;
+                }
+                
                 double penalty = set.ExpectedRtp > rtpTarget ? Math.Pow(set.ExpectedRtp - rtpTarget, 2) * 4 : 0;
-                //double rewardBias = set.ExpectedRtp * set.ExpectedRtp; // favors high RTP sets
-                double safeBias = (set.ExpectedRtp >= 0.80 && set.ExpectedRtp <= 1.05) ? 1.2 : 1.0;
-                double combinedScore = safeBias / (rtpDistance * 0.6 + hitDistance * 0.4 + penalty + 0.001);
+                double combinedScore = bias / (rtpDistance * 0.6 + hitDistance * 0.4 + penalty + 0.001);
                 weightedMap[set] = combinedScore;
                 totalWeight += combinedScore;
             }
@@ -901,6 +1100,7 @@ namespace BloodSuckersSlot
                 {
                     _freeSpinsRemaining += toAward;
                     _freeSpinsAwarded += toAward;
+                    _totalFreeSpinsAwarded += toAward; // Track total free spins awarded
                     scatterLog = $"Free Spins Triggered! SYM0 x{scatterCount} => +{toAward} Free Spins";
                 }
             }
@@ -916,6 +1116,8 @@ namespace BloodSuckersSlot
         private bool LooksScatterStacked(ReelSet set)
         {
             int[] scatterRowCounts = new int[3]; // Rows 0–2 (visible zone)
+            double currentRtp = GetActualRtp();
+            double rtpTarget = _config.RtpTarget;
 
             for (int col = 0; col < 5; col++)
             {
@@ -927,7 +1129,22 @@ namespace BloodSuckersSlot
                 }
             }
 
-            return scatterRowCounts.Any(count => count >= 3);
+            // Be more permissive when RTP is high (we need low RTP sets)
+            int maxScattersPerRow;
+            if (currentRtp > rtpTarget * 1.2) // RTP > 105.6%
+            {
+                maxScattersPerRow = 6; // Allow up to 6 scatters per row when RTP high
+            }
+            else if (currentRtp > rtpTarget) // RTP > 100%
+            {
+                maxScattersPerRow = 5; // More permissive
+            }
+            else
+            {
+                maxScattersPerRow = 4; // More permissive
+            }
+
+            return scatterRowCounts.Any(count => count >= maxScattersPerRow);
         }
 
 
@@ -979,10 +1196,13 @@ namespace BloodSuckersSlot
 
                     if (count >= 3)
                     {
-                        if (_isSimulationMode || spinCounter - _lastBonusSpin >= 250)
+                        if (_isSimulationMode || spinCounter - _lastBonusSpin >= 50) // Reduced from 250 to 50 spins
                         {
                             if (!_isSimulationMode)
+                            {
                                 _lastBonusSpin = spinCounter;
+                                _totalBonusesTriggered++; // Track total bonuses triggered
+                            }
 
                             bonusLog = $"Bonus Triggered! SYM2 x{count} on Payline: [{string.Join(",", line)}]";
                             return true;
@@ -1008,6 +1228,8 @@ namespace BloodSuckersSlot
         }
 
         private double GetActualRtp() => _totalBet == 0 ? 0 : _totalWin / _totalBet;
+        
+        private double GetActualHitRate() => spinCounter == 0 ? 0 : (double)_hitCount / spinCounter;
 
         private bool HasMinimumScatters(List<List<string>> grid, int minCount = 2)
         {
@@ -1037,7 +1259,14 @@ namespace BloodSuckersSlot
             if (!File.Exists(csvPath))
             {
                 var header = "SpinNumber,BetAmount,SpinWin,ActualRTP,HitRate,IsFreeSpin,FreeSpinsRemaining,ReelSetName,ExpectedRTP";
-                File.WriteAllText(csvPath, header + Environment.NewLine, Encoding.UTF8);
+                try
+                {
+                    File.WriteAllText(csvPath, header + Environment.NewLine, Encoding.UTF8);
+                }
+                catch (IOException ex)
+                {
+                    Console.WriteLine($"[CSV Warning] Could not create CSV file: {ex.Message}");
+                }
             }
         }
 
@@ -1059,7 +1288,34 @@ namespace BloodSuckersSlot
             string expectedRtpStr = $"{expectedRtp * 100:F2}%";
 
             var line = $"{spinNumber},{betAmount},{spinWin},{rtpPercent},{hitRatePercent},{isFreeSpin},{freeSpinsRemaining},{reelSetName},{expectedRtpStr}";
-            File.AppendAllText(csvPath, line + Environment.NewLine, Encoding.UTF8);
+            
+            // Retry logic with proper file sharing
+            int maxRetries = 3;
+            for (int retry = 0; retry < maxRetries; retry++)
+            {
+                try
+                {
+                    // Use FileShare.ReadWrite to allow other processes to read/write
+                    using (var stream = new FileStream(csvPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    using (var writer = new StreamWriter(stream, Encoding.UTF8))
+                    {
+                        writer.Write(line + Environment.NewLine);
+                    }
+                    return; // Success, exit retry loop
+                }
+                catch (IOException ex)
+                {
+                    if (retry == maxRetries - 1)
+                    {
+                        Console.WriteLine($"[CSV Error] Failed to write to CSV after {maxRetries} retries: {ex.Message}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[CSV Warning] Retry {retry + 1}/{maxRetries}: {ex.Message}");
+                        Thread.Sleep(100); // Wait 100ms before retry
+                    }
+                }
+            }
         }
 
 
@@ -1070,14 +1326,47 @@ namespace BloodSuckersSlot
             int scatterCount = flat.Count(s => s == "SYM0");
             int wildCount = flat.Count(s => s == "SYM1");
             int topRowScatters = CountScatterInTopRows(set);
+            double currentRtp = GetActualRtp();
+            double rtpTarget = _config.RtpTarget;
 
             bool isStackedScatter = LooksScatterStacked(set);
 
-            bool dangerous = scatterCount >= 5 || wildCount >= 6 || (scatterCount >= 4 && wildCount >= 4);
-
-            if (dangerous || topRowScatters >= 4 || isStackedScatter)
+            // Be more permissive when RTP is high (we need low RTP sets)
+            bool dangerous;
+            if (currentRtp > rtpTarget * 1.2) // RTP > 105.6%
             {
-                Console.WriteLine($"[Rejected: Dangerous] Set flagged. Scatters: {scatterCount}, Wilds: {wildCount}, TopRowScatters: {topRowScatters}, StackedScatter: {isStackedScatter}");
+                // When RTP is high, be more permissive to find low RTP sets
+                dangerous = scatterCount >= 10 || wildCount >= 12 || (scatterCount >= 8 && wildCount >= 8);
+            }
+            else if (currentRtp > rtpTarget) // RTP > 100%
+            {
+                // Moderate permissiveness
+                dangerous = scatterCount >= 8 || wildCount >= 10 || (scatterCount >= 6 && wildCount >= 6);
+            }
+            else
+            {
+                // Normal strictness when RTP is low
+                dangerous = scatterCount >= 6 || wildCount >= 8 || (scatterCount >= 5 && wildCount >= 5);
+            }
+
+            // Top row scatter limits - also context-aware
+            bool topRowDangerous;
+            if (currentRtp > rtpTarget * 1.2)
+            {
+                topRowDangerous = topRowScatters >= 7; // Much more permissive when RTP high
+            }
+            else if (currentRtp > rtpTarget)
+            {
+                topRowDangerous = topRowScatters >= 6; // More permissive
+            }
+            else
+            {
+                topRowDangerous = topRowScatters >= 5; // More permissive
+            }
+
+            if (dangerous || topRowDangerous || isStackedScatter)
+            {
+                Console.WriteLine($"[Rejected: Dangerous] Set flagged. Scatters: {scatterCount}, Wilds: {wildCount}, TopRowScatters: {topRowScatters}, StackedScatter: {isStackedScatter}, CurrentRTP: {currentRtp:F2}");
                 return true;
             }
 

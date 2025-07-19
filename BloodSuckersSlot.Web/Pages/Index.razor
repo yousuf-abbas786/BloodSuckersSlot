@@ -8,16 +8,107 @@
 
 <h3>Real-Time RTP & Hit Rate Dashboard</h3>
 
-<canvas id="rtpChart" width="800" height="400"></canvas>
-<canvas id="hitRateChart" width="800" height="400" style="margin-top:40px;"></canvas>
+<!-- Statistics Panel -->
+<div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dee2e6;">
+    <h4 style="margin-bottom: 15px; color: #495057;">Performance Metrics</h4>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+        <div style="background: white; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #007bff;">Current RTP:</strong><br/>
+            <span style="font-size: 18px; font-weight: bold; color: @(currentRtp >= 0.88 ? "#28a745" : "#dc3545");">
+                @(currentRtp.ToString("P2"))
+            </span>
+        </div>
+        <div style="background: white; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #28a745;">Current Hit Rate:</strong><br/>
+            <span style="font-size: 18px; font-weight: bold; color: @(currentHitRate >= 0.35 ? "#28a745" : "#dc3545");">
+                @(currentHitRate.ToString("P2"))
+            </span>
+        </div>
+        <div style="background: white; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #6f42c1;">Avg Spin Time:</strong><br/>
+            <span style="font-size: 18px; font-weight: bold; color: #6f42c1;">
+                @(avgSpinTime.ToString("F1"))s
+            </span>
+        </div>
+        <div style="background: white; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #fd7e14;">Total Spins:</strong><br/>
+            <span style="font-size: 18px; font-weight: bold; color: #fd7e14;">
+                @totalSpins
+            </span>
+        </div>
+    </div>
+    
+    <h5 style="margin: 20px 0 10px 0; color: #495057;">Reel Set Selection Analysis</h5>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+        <div style="background: white; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #dc3545;">HighRtpSets:</strong><br/>
+            <span style="font-size: 16px; font-weight: bold; color: #dc3545;">@highRtpCount</span>
+        </div>
+        <div style="background: white; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #ffc107;">MidRtpSets:</strong><br/>
+            <span style="font-size: 16px; font-weight: bold; color: #ffc107;">@midRtpCount</span>
+        </div>
+        <div style="background: white; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #28a745;">LowRtpSets:</strong><br/>
+            <span style="font-size: 16px; font-weight: bold; color: #28a745;">@lowRtpCount</span>
+        </div>
+        <div style="background: white; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #6c757d;">SafeFallback:</strong><br/>
+            <span style="font-size: 16px; font-weight: bold; color: #6c757d;">@safeFallbackCount</span>
+        </div>
+    </div>
+    
+    <h5 style="margin: 20px 0 10px 0; color: #495057;">Game Feature Stats</h5>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+        <div style="background: white; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #17a2b8;">Total Free Spins:</strong><br/>
+            <span style="font-size: 16px; font-weight: bold; color: #17a2b8;">@totalFreeSpinsAwarded</span>
+        </div>
+        <div style="background: white; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef;">
+            <strong style="color: #e83e8c;">Total Bonuses:</strong><br/>
+            <span style="font-size: 16px; font-weight: bold; color: #e83e8c;">@totalBonusesTriggered</span>
+        </div>
+    </div>
+</div>
+
+<div style="display: flex; gap: 20px; justify-content: center; height: 400px; overflow: hidden;">
+    <div style="flex: 1; height: 100%;">
+        <h4>RTP Chart</h4>
+        <div style="height: 320px; width: 100%;">
+            <canvas id="rtpChart" width="400" height="300"></canvas>
+        </div>
+    </div>
+    <div style="flex: 1; height: 100%;">
+        <h4>Hit Rate Chart</h4>
+        <div style="height: 320px; width: 100%;">
+            <canvas id="hitRateChart" width="400" height="300"></canvas>
+        </div>
+    </div>
+</div>
 
 @code {
     private List<string> rtpLabels = new() { "A", "B", "C", "D", "E" };
     private List<double> rtpData = new() { 0.5, 0.7, 0.6, 0.8, 0.9 };
+    private List<double> rtpTargetData = new() { 0.85, 0.85, 0.85, 0.85, 0.85 };
     private List<string> hitRateLabels = new() { "A", "B", "C", "D", "E" };
     private List<double> hitRateData = new() { 0.4, 0.5, 0.6, 0.55, 0.65 };
+    private List<double> hitRateTargetData = new() { 0.6, 0.6, 0.6, 0.6, 0.6 };
     private int spinCount = 5;
     private bool chartsInitialized = false;
+
+    // Performance metrics
+    private double currentRtp = 0.0;
+    private double currentHitRate = 0.0;
+    private double avgSpinTime = 0.0;
+    private int totalSpins = 0;
+    private int highRtpCount = 0;
+    private int midRtpCount = 0;
+    private int lowRtpCount = 0;
+    private int safeFallbackCount = 0;
+    private int totalFreeSpinsAwarded = 0;
+    private int totalBonusesTriggered = 0;
+    private List<double> spinTimes = new();
+    private DateTime lastSpinTime = DateTime.Now;
 
     protected override async Task OnInitializedAsync()
     {
@@ -38,13 +129,46 @@
     {
         if (update == null)
             return;
+
+        // Debug logging to browser console
+        await JS.InvokeVoidAsync("console.log", "[Web] Received RTP Update:", update);
+        await JS.InvokeVoidAsync("console.log", $"[Web] Spin={update.SpinNumber}, RTP={update.ActualRtp}, HitRate={update.ActualHitRate}");
+        await JS.InvokeVoidAsync("console.log", $"[Web] Performance: SpinTime={update.SpinTimeSeconds}, AvgTime={update.AverageSpinTimeSeconds}, TotalSpins={update.TotalSpins}");
+        await JS.InvokeVoidAsync("console.log", $"[Web] Reel Sets: High={update.HighRtpSetCount}, Mid={update.MidRtpSetCount}, Low={update.LowRtpSetCount}, Fallback={update.SafeFallbackCount}");
+
+        // Update metrics from backend data
+        currentRtp = update.ActualRtp;
+        currentHitRate = update.ActualHitRate;
+        totalSpins = update.TotalSpins;
+        avgSpinTime = update.AverageSpinTimeSeconds;
+
+        // Update reel set counts from backend
+        highRtpCount = update.HighRtpSetCount;
+        midRtpCount = update.MidRtpSetCount;
+        lowRtpCount = update.LowRtpSetCount;
+        safeFallbackCount = update.SafeFallbackCount;
+        
+        // Update game feature stats from backend
+        totalFreeSpinsAwarded = update.TotalFreeSpinsAwarded;
+        totalBonusesTriggered = update.TotalBonusesTriggered;
+        
+        // Debug: Log the values being set
+        await JS.InvokeVoidAsync("console.log", $"[Web] Setting values: RTP={currentRtp}, HitRate={currentHitRate}, TotalSpins={totalSpins}, AvgTime={avgSpinTime}");
+        await JS.InvokeVoidAsync("console.log", $"[Web] Reel Sets: High={highRtpCount}, Mid={midRtpCount}, Low={lowRtpCount}, Fallback={safeFallbackCount}");
+
         spinCount++;
         rtpLabels.Add(update.SpinNumber.ToString());
         hitRateLabels.Add(update.SpinNumber.ToString());
         rtpData.Add(update.ActualRtp);
+        rtpTargetData.Add(update.TargetRtp);
         hitRateData.Add(update.ActualHitRate);
+        hitRateTargetData.Add(update.TargetHitRate);
+        
         if (chartsInitialized)
-            await RenderCharts();
+            await UpdateChartsWithNewData();
+            
+        // Force UI refresh
+        StateHasChanged();
     }
 
     private async Task RenderCharts()
@@ -58,15 +182,33 @@
                     type: 'line',
                     data: {{
                         labels: {ToJsArray(rtpLabels)},
-                        datasets: [{{
-                            label: 'RTP',
-                            data: {ToJsArray(rtpData)},
-                            borderColor: 'blue',
-                            backgroundColor: 'rgba(0,0,255,0.1)',
-                            fill: false
-                        }}]
+                        datasets: [
+                            {{
+                                label: 'Actual RTP',
+                                data: {ToJsArray(rtpData)},
+                                borderColor: 'blue',
+                                backgroundColor: 'rgba(0,0,255,0.1)',
+                                fill: false
+                            }},
+                            {{
+                                label: 'Target RTP',
+                                data: {ToJsArray(rtpTargetData)},
+                                borderColor: 'red',
+                                backgroundColor: 'rgba(255,0,0,0.1)',
+                                borderDash: [5, 5],
+                                fill: false
+                            }}
+                        ]
                     }},
-                    options: {{ responsive: true }}
+                    options: {{ 
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                display: true
+                            }}
+                        }}
+                    }}
                 }});
             }}
         ");
@@ -79,16 +221,57 @@
                     type: 'line',
                     data: {{
                         labels: {ToJsArray(hitRateLabels)},
-                        datasets: [{{
-                            label: 'Hit Rate',
-                            data: {ToJsArray(hitRateData)},
-                            borderColor: 'green',
-                            backgroundColor: 'rgba(0,255,0,0.1)',
-                            fill: false
-                        }}]
+                        datasets: [
+                            {{
+                                label: 'Actual Hit Rate',
+                                data: {ToJsArray(hitRateData)},
+                                borderColor: 'green',
+                                backgroundColor: 'rgba(0,255,0,0.1)',
+                                fill: false
+                            }},
+                            {{
+                                label: 'Target Hit Rate',
+                                data: {ToJsArray(hitRateTargetData)},
+                                borderColor: 'orange',
+                                backgroundColor: 'rgba(255,165,0,0.1)',
+                                borderDash: [5, 5],
+                                fill: false
+                            }}
+                        ]
                     }},
-                    options: {{ responsive: true }}
+                    options: {{ 
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                display: true
+                            }}
+                        }}
+                    }}
                 }});
+            }}
+        ");
+    }
+
+    private async Task UpdateChartsWithNewData()
+    {
+        // Update RTP Chart with new data point only
+        await JS.InvokeVoidAsync("eval", $@"
+            if (window.rtpChartInstance) {{
+                window.rtpChartInstance.data.labels.push('{rtpLabels.Last()}');
+                window.rtpChartInstance.data.datasets[0].data.push({rtpData.Last()});
+                window.rtpChartInstance.data.datasets[1].data.push({rtpTargetData.Last()});
+                window.rtpChartInstance.update('none');
+            }}
+        ");
+        
+        // Update Hit Rate Chart with new data point only
+        await JS.InvokeVoidAsync("eval", $@"
+            if (window.hitRateChartInstance) {{
+                window.hitRateChartInstance.data.labels.push('{hitRateLabels.Last()}');
+                window.hitRateChartInstance.data.datasets[0].data.push({hitRateData.Last()});
+                window.hitRateChartInstance.data.datasets[1].data.push({hitRateTargetData.Last()});
+                window.hitRateChartInstance.update('none');
             }}
         ");
     }

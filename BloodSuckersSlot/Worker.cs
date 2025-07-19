@@ -7,10 +7,10 @@ namespace BloodSuckersSlot
         private readonly ILogger<Worker> _logger;
         private readonly SlotEngine _engine;
 
-        public Worker(ILogger<Worker> logger, IOptions<GameConfig> config)
+        public Worker(ILogger<Worker> logger, GameConfig config)
         {
             _logger = logger;
-            _engine = new SlotEngine(config.Value);
+            _engine = new SlotEngine(config);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -22,7 +22,7 @@ namespace BloodSuckersSlot
                 _engine.Spin(25);
                 spinCount++;
 
-                await Task.Delay(1000, stoppingToken);
+                //await Task.Delay(500, stoppingToken);
             }
         }
     }
