@@ -1,0 +1,880 @@
+@page "/spin"
+@using BloodSuckersSlot.Web.Models
+@using BloodSuckersSlot.Web.Services
+@using Shared
+@using System.Text.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Spin Page</PageTitle>
+
+<div class="container-fluid">
+    <div class="row">
+        <!-- Main Spin Area -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Slot Machine Spin</h3>
+                </div>
+                <div class="card-body">
+                    <!-- Loading Status -->
+                    @if (isLoadingReelSets)
+                    {
+                        <div class="text-center mb-4">
+                            <div class="alert alert-info">
+                                <h5>Loading Reel Sets...</h5>
+                                <div class="progress mb-2">
+                                    <div class="progress-bar" role="progressbar" 
+                                         style="width: @(loadingProgress * 100)%" 
+                                         aria-valuenow="@(loadingProgress * 100)" 
+                                         aria-valuemin="0" aria-valuemax="100">
+                                        @((loadingProgress * 100).ToString("F1"))%
+                                    </div>
+                                </div>
+                                <small>Loaded @loadedReelSets of @totalReelSets reel sets</small>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Spin Button -->
+                    <div class="text-center mb-4">
+                        <button class="btn btn-primary btn-lg" @onclick="PerformSpin" 
+                                disabled="@(isSpinning || isLoadingReelSets || !reelSetsLoaded)">
+                            @if (isSpinning)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                <span>Spinning...</span>
+                            }
+                            else if (isLoadingReelSets)
+                            {
+                                <span>⏳ Loading...</span>
+                            }
+                            else if (!reelSetsLoaded)
+                            {
+                                <span>⏳ Waiting...</span>
+                            }
+                            else
+                            {
+                                <span>🎰 SPIN</span>
+                            }
+                        </button>
+                    </div>
+
+                    <!-- Grid Display -->
+                    @if (currentGrid != null)
+                    {
+                        <div class="text-center mb-4">
+                            <h5>Spin Result</h5>
+                            <div class="slot-grid position-relative">
+                                @for (int row = 0; row < 3; row++)
+                                {
+                                    <div class="slot-row">
+                                        @for (int col = 0; col < 5; col++)
+                                        {
+                                            <div class="slot-symbol @GetSymbolClass(currentGrid[col][row]) position-relative">
+                                                <img src="/images/symbols/@(currentGrid[col][row].ToLower()).png" 
+                                                     alt="@currentGrid[col][row]" 
+                                                     class="symbol-image" />
+                                                @if (IsWinningPosition(col, row))
+                                                {
+                                                    <div class="winning-highlight"></div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                
+                                <!-- Winning Lines Overlay -->
+                                @if (winningLines != null && winningLines.Count > 0)
+                                {
+                                    <div class="winning-lines-overlay">
+                                        @foreach (var line in winningLines)
+                                        {
+                                            <svg class="winning-line" viewBox="0 0 500 180">
+                                                <path d="@line.Path" stroke="yellow" stroke-width="3" fill="none" 
+                                                      stroke-dasharray="5,5" opacity="0.8" />
+                                            </svg>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Win Information -->
+                        @if (lastSpinResult != null)
+                        {
+                            <div class="win-breakdown">
+                                <h6>💰 Win Breakdown:</h6>
+                                <p><strong>Total Win:</strong> @lastSpinResult.TotalWin</p>
+                                <p><strong>Line Win:</strong> @lastSpinResult.LineWin</p>
+                                <p><strong>Wild Win:</strong> @lastSpinResult.WildWin</p>
+                                <p><strong>Scatter Win:</strong> @lastSpinResult.ScatterWin</p>
+                                @if (lastSpinResult.BonusWin > 0)
+                                {
+                                    <p><strong>🎁 Bonus Win:</strong> @lastSpinResult.BonusWin</p>
+                                }
+                                @if (lastSpinResult.BonusTriggered)
+                                {
+                                    <div class="bonus-trigger">
+                                        <p><strong>🎉 BONUS TRIGGERED!</strong></p>
+                                        @if (!string.IsNullOrEmpty(lastSpinResult.BonusLog))
+                                        {
+                                            <p><em>@lastSpinResult.BonusLog</em></p>
+                                        }
+                                    </div>
+                                }
+                            </div>
+
+                            <!-- Free Spin Information -->
+                            <div class="free-spin-info">
+                                <h6>🎰 Spin Status:</h6>
+                                <p><strong>Spin Type:</strong> 
+                                    <span class="@(lastSpinResult.IsFreeSpin ? "free-spin-badge" : "paid-spin-badge")">@lastSpinResult.SpinType</span>
+                                </p>
+                                <p><strong>Free Spins Remaining:</strong> <span class="badge bg-success">@lastSpinResult.FreeSpinsRemaining</span></p>
+                                @if (lastSpinResult.ScatterCount > 0)
+                                {
+                                    <p><strong>Scatters This Spin:</strong> <span class="badge bg-warning">@lastSpinResult.ScatterCount</span></p>
+                                }
+                            </div>
+
+                            <!-- Winning Line Calculations for Testing -->
+                            @if (winningLines != null && winningLines.Count > 0)
+                            {
+                                <div class="winning-line-calculation">
+                                    <h6>🧮 Winning Line Calculations (Testing):</h6>
+                                    @foreach (var line in winningLines)
+                                    {
+                                        <div class="winning-line-detail">
+                                            <p><strong>Symbol:</strong> @line.Symbol</p>
+                                            <p><strong>Count:</strong> @line.Count</p>
+                                            <p><strong>Win Amount:</strong> @line.WinAmount</p>
+                                            <p><strong>Positions:</strong> @string.Join(", ", line.Positions.Select(p => $"({p.Col},{p.Row})"))</p>
+                                            <p><strong>SVG Path:</strong> <code>@line.Path</code></p>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+
+                        <!-- Chosen Reel Set Info -->
+                        @if (chosenReelSet != null)
+                        {
+                            <div class="alert alert-secondary">
+                                <h6>Selected Reel Set:</h6>
+                                <p><strong>Name:</strong> @chosenReelSet.Name</p>
+                                <p><strong>Expected RTP:</strong> @(chosenReelSet.ExpectedRtp.ToString("P2"))</p>
+                                <p><strong>Estimated Hit Rate:</strong> @(chosenReelSet.EstimatedHitRate.ToString("P2"))</p>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Sidebar -->
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5>RTP Chart</h5>
+                </div>
+                <div class="card-body">
+                    <div style="height: 200px;">
+                        <canvas id="rtpChartSmall" width="300" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5>Hit Rate Chart</h5>
+                </div>
+                <div class="card-body">
+                    <div style="height: 200px;">
+                        <canvas id="hitRateChartSmall" width="300" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Stats -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5>Current Stats</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Current RTP:</strong> <span class="@(currentRtp >= 0.88 ? "text-success" : "text-danger")">@(currentRtp.ToString("P2"))</span></p>
+                    <p><strong>Current Hit Rate:</strong> <span class="@(currentHitRate >= 0.35 ? "text-success" : "text-danger")">@(currentHitRate.ToString("P2"))</span></p>
+                    <p><strong>Total Spins:</strong> @totalSpins</p>
+                </div>
+            </div>
+
+            <!-- Session Statistics -->
+            @if (lastSpinResult != null)
+            {
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5>🎰 Session Statistics</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Current Spin Type:</strong> 
+                            <span class="badge @(lastSpinResult.IsFreeSpin ? "bg-success" : "bg-primary")">@lastSpinResult.SpinType</span>
+                        </p>
+                        <p><strong>Free Spins Remaining:</strong> <span class="badge bg-success">@lastSpinResult.FreeSpinsRemaining</span></p>
+                        <p><strong>Free Spins Awarded This Session:</strong> <span class="badge bg-info">@lastSpinResult.FreeSpinsAwarded</span></p>
+                        <p><strong>Total Free Spins Awarded:</strong> <span class="badge bg-warning">@lastSpinResult.TotalFreeSpinsAwarded</span></p>
+                        <p><strong>Total Bonuses Triggered:</strong> <span class="badge bg-danger">@lastSpinResult.TotalBonusesTriggered</span></p>
+                        @if (lastSpinResult.ScatterCount > 0)
+                        {
+                            <p><strong>Last Spin Scatters:</strong> <span class="badge bg-warning">@lastSpinResult.ScatterCount</span></p>
+                        }
+                        @if (lastSpinResult.BonusWin > 0)
+                        {
+                            <p><strong>Last Bonus Win:</strong> <span class="badge bg-danger">@lastSpinResult.BonusWin</span></p>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .slot-grid {
+        display: inline-block;
+        border: 2px solid #333;
+        background: #1a1a1a;
+        padding: 10px;
+        border-radius: 10px;
+    }
+
+    .slot-row {
+        display: flex;
+        margin-bottom: 5px;
+    }
+
+    .slot-row:last-child {
+        margin-bottom: 0;
+    }
+
+    .slot-symbol {
+        width: 80px;
+        height: 60px;
+        margin: 0 2px;
+        border: 1px solid #444;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #2a2a2a;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .symbol-image {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 3px;
+    }
+
+    .winning-highlight {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 0, 0.3);
+        border: 2px solid yellow;
+        border-radius: 3px;
+        animation: pulse 1s infinite;
+    }
+
+    @@keyframes pulse {
+        0% { opacity: 0.3; }
+        50% { opacity: 0.7; }
+        100% { opacity: 0.3; }
+    }
+
+    .winning-lines-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    .winning-line {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    .scatter { background: linear-gradient(45deg, #ffd700, #ffed4e); }
+    .wild { background: linear-gradient(45deg, #00bfff, #87ceeb); }
+    .bonus { background: linear-gradient(45deg, #ff4500, #ff6347); }
+    .high-pay { background: linear-gradient(45deg, #32cd32, #90ee90); }
+
+    .free-spin-badge {
+        background: linear-gradient(45deg, #28a745, #20c997);
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-weight: bold;
+    }
+
+    .paid-spin-badge {
+        background: linear-gradient(45deg, #007bff, #0056b3);
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-weight: bold;
+    }
+
+    .bonus-trigger {
+        background: linear-gradient(45deg, #ff4500, #ff6347);
+        color: white;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        animation: pulse 2s infinite;
+    }
+
+    .free-spin-info {
+        background: linear-gradient(45deg, #ffc107, #ffdb4d);
+        border: 2px solid #ffc107;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }
+
+    .win-breakdown {
+        background: linear-gradient(45deg, #17a2b8, #20c997);
+        border: 2px solid #17a2b8;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }
+
+    .winning-line-calculation {
+        background: linear-gradient(45deg, #6f42c1, #8e44ad);
+        border: 2px solid #6f42c1;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        color: white;
+    }
+
+    .winning-line-detail {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 0.25rem;
+        padding: 0.5rem;
+        margin: 0.25rem 0;
+    }
+
+    .winning-line-detail code {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.875rem;
+    }
+</style>
+
+@code {
+    private bool isSpinning = false;
+    private bool isLoadingReelSets = true;
+    private bool reelSetsLoaded = false;
+    private int totalReelSets = 0;
+    private int loadedReelSets = 0;
+    private double loadingProgress = 0.0;
+    private string[][]? currentGrid;
+    private SpinResult? lastSpinResult;
+    private dynamic? chosenReelSet;
+    private double currentRtp = 0.0;
+    private double currentHitRate = 0.0;
+    private int totalSpins = 0;
+
+    // Chart data
+    private List<string> rtpLabels = new();
+    private List<double> rtpData = new();
+    private List<double> rtpTargetData = new();
+    private List<string> hitRateLabels = new();
+    private List<double> hitRateData = new();
+    private List<double> hitRateTargetData = new();
+    private bool chartsInitialized = false;
+    
+    // Winning lines and positions
+    private List<WinningLine> winningLines = new();
+    private HashSet<(int col, int row)> winningPositions = new();
+
+    // API winning line data structure
+    public class ApiWinningLine
+    {
+        public List<Position> Positions { get; set; } = new();
+        public string Symbol { get; set; } = "";
+        public int Count { get; set; }
+        public double WinAmount { get; set; }
+        public string PaylineType { get; set; } = "";
+        public string SvgPath { get; set; } = "";
+    }
+
+    public class Position
+    {
+        public int Col { get; set; }
+        public int Row { get; set; }
+    }
+
+    // Frontend winning line data structure
+    public class WinningLine
+    {
+        public string Path { get; set; } = "";
+        public double WinAmount { get; set; }
+        public string Symbol { get; set; } = "";
+        public int Count { get; set; }
+        public List<Position> Positions { get; set; } = new();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InitializeCharts();
+            chartsInitialized = true;
+            await CheckLoadingStatus();
+            
+            // Force chart initialization after a delay to ensure DOM is ready
+            await Task.Delay(500);
+            await RenderCharts();
+        }
+    }
+
+    private bool IsWinningPosition(int col, int row)
+    {
+        return winningPositions.Contains((col, row));
+    }
+
+    private void ProcessWinningLinesFromApi(List<ApiWinningLine> apiWinningLines)
+    {
+        winningLines.Clear();
+        winningPositions.Clear();
+        
+        if (apiWinningLines == null || apiWinningLines.Count == 0)
+        {
+            JS.InvokeVoidAsync("console.log", "No winning lines from API");
+            return;
+        }
+
+        JS.InvokeVoidAsync("console.log", $"Processing {apiWinningLines.Count} winning lines from API");
+        
+        foreach (var apiLine in apiWinningLines)
+        {
+            JS.InvokeVoidAsync("console.log", $"Processing API line - Symbol: '{apiLine.Symbol}', Count: {apiLine.Count}, WinAmount: {apiLine.WinAmount}, SvgPath: '{apiLine.SvgPath}', Positions: {apiLine.Positions.Count}");
+            
+            // Add positions to winning positions set
+            foreach (var pos in apiLine.Positions)
+            {
+                winningPositions.Add((pos.Col, pos.Row));
+                JS.InvokeVoidAsync("console.log", $"Added winning position: ({pos.Col}, {pos.Row})");
+            }
+            
+            // Create frontend winning line
+            var frontendLine = new WinningLine
+            {
+                Path = apiLine.SvgPath,
+                WinAmount = apiLine.WinAmount,
+                Symbol = apiLine.Symbol,
+                Count = apiLine.Count,
+                Positions = apiLine.Positions
+            };
+            
+            winningLines.Add(frontendLine);
+            
+            JS.InvokeVoidAsync("console.log", $"Created frontend winning line: Symbol='{frontendLine.Symbol}', Count={frontendLine.Count}, WinAmount={frontendLine.WinAmount}, Path='{frontendLine.Path}', Positions={frontendLine.Positions.Count}");
+        }
+        
+        JS.InvokeVoidAsync("console.log", $"Final result: {winningLines.Count} lines, {winningPositions.Count} positions");
+    }
+
+    private async Task CheckLoadingStatus()
+    {
+        try
+        {
+            var apiUrl = "http://37.27.71.156:5000/api/spin/loading-status";
+            await JS.InvokeVoidAsync("console.log", $"Checking loading status: {apiUrl}");
+            
+            var response = await Http.GetAsync(apiUrl);
+            await JS.InvokeVoidAsync("console.log", $"Loading status response: {response.StatusCode}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.log", $"Loading status JSON: {json}");
+                
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                isLoadingReelSets = root.GetProperty("isLoading").GetBoolean();
+                reelSetsLoaded = root.GetProperty("isLoaded").GetBoolean();
+                totalReelSets = root.GetProperty("totalReelSets").GetInt32();
+                loadedReelSets = root.GetProperty("loadedCount").GetInt32();
+                loadingProgress = root.GetProperty("progressPercentage").GetDouble();
+
+                if (isLoadingReelSets)
+                {
+                    // Continue checking until loading is complete
+                    await Task.Delay(1000); // Wait 1 second before next check
+                    await CheckLoadingStatus();
+                }
+                else if (reelSetsLoaded)
+                {
+                    isLoadingReelSets = false;
+                    StateHasChanged();
+                }
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.error", $"Loading status error: {response.StatusCode} - {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Error checking loading status:", ex.Message);
+        }
+    }
+
+    private async Task PerformSpin()
+    {
+        if (isSpinning) return;
+
+        isSpinning = true;
+        StateHasChanged();
+
+        try
+        {
+            var apiUrl = "http://37.27.71.156:5000/api/spin/spin";
+            await JS.InvokeVoidAsync("console.log", $"Calling API: {apiUrl}");
+            
+            var response = await Http.PostAsJsonAsync(apiUrl, new { BetAmount = 25 });
+            
+            await JS.InvokeVoidAsync("console.log", $"API Response Status: {response.StatusCode}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.log", $"API Response: {json}");
+                
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                // Parse grid
+                var grid = root.GetProperty("grid");
+                currentGrid = new string[5][];
+                int colIdx = 0;
+                foreach (var col in grid.EnumerateArray())
+                {
+                    var colArr = new string[3];
+                    int rowIdx = 0;
+                    foreach (var s in col.EnumerateArray())
+                    {
+                        colArr[rowIdx++] = s.GetString() ?? "";
+                    }
+                    currentGrid[colIdx++] = colArr;
+                }
+
+                // Parse spin result
+                var spinResult = root.GetProperty("result");
+                lastSpinResult = new SpinResult
+                {
+                    TotalWin = spinResult.GetProperty("totalWin").GetDouble(),
+                    LineWin = spinResult.GetProperty("lineWin").GetDouble(),
+                    WildWin = spinResult.GetProperty("wildWin").GetDouble(),
+                    ScatterWin = spinResult.GetProperty("scatterWin").GetDouble(),
+                    BonusWin = spinResult.GetProperty("bonusWin").GetDouble(),
+                    ScatterCount = spinResult.GetProperty("scatterCount").GetInt32(),
+                    BonusLog = spinResult.GetProperty("bonusLog").GetString() ?? "",
+                    IsFreeSpin = spinResult.GetProperty("isFreeSpin").GetBoolean(),
+                    BonusTriggered = spinResult.GetProperty("bonusTriggered").GetBoolean(),
+                    
+                    // Parse new free spin and bonus tracking fields
+                    FreeSpinsRemaining = spinResult.GetProperty("freeSpinsRemaining").GetInt32(),
+                    FreeSpinsAwarded = spinResult.GetProperty("freeSpinsAwarded").GetInt32(),
+                    TotalFreeSpinsAwarded = spinResult.GetProperty("totalFreeSpinsAwarded").GetInt32(),
+                    TotalBonusesTriggered = spinResult.GetProperty("totalBonusesTriggered").GetInt32(),
+                    SpinType = spinResult.GetProperty("spinType").GetString() ?? ""
+                };
+
+                // Parse chosen reel set
+                var reelSet = root.GetProperty("chosenReelSet");
+                chosenReelSet = new
+                {
+                    Name = reelSet.GetProperty("name").GetString() ?? "",
+                    ExpectedRtp = reelSet.GetProperty("expectedRtp").GetDouble(),
+                    EstimatedHitRate = reelSet.GetProperty("estimatedHitRate").GetDouble()
+                };
+
+                // Parse winning lines
+                var apiWinningLines = new List<ApiWinningLine>();
+                var winningLinesArray = root.GetProperty("winningLines");
+                await JS.InvokeVoidAsync("console.log", $"Winning lines array count: {winningLinesArray.GetArrayLength()}");
+                
+                foreach (var line in winningLinesArray.EnumerateArray())
+                {
+                    await JS.InvokeVoidAsync("console.log", $"Raw winning line JSON: {line.GetRawText()}");
+                    
+                    try
+                    {
+                        // Try to parse manually to debug the issue
+                        var symbol = line.TryGetProperty("symbol", out var symbolProp) ? symbolProp.GetString() ?? "" : "";
+                        var count = line.TryGetProperty("count", out var countProp) ? countProp.GetInt32() : 0;
+                        var winAmount = line.TryGetProperty("winAmount", out var winAmountProp) ? winAmountProp.GetDouble() : 0.0;
+                        var svgPath = line.TryGetProperty("svgPath", out var svgPathProp) ? svgPathProp.GetString() ?? "" : "";
+                        
+                        await JS.InvokeVoidAsync("console.log", $"Parsed manually - Symbol: '{symbol}', Count: {count}, WinAmount: {winAmount}, SvgPath: '{svgPath}'");
+                        
+                        var apiLine = new ApiWinningLine
+                        {
+                            Symbol = symbol,
+                            Count = count,
+                            WinAmount = winAmount,
+                            SvgPath = svgPath,
+                            PaylineType = line.TryGetProperty("paylineType", out var paylineTypeProp) ? paylineTypeProp.GetString() ?? "" : "",
+                            Positions = new List<Position>()
+                        };
+                        
+                        // Parse positions
+                        if (line.TryGetProperty("positions", out var positionsProp))
+                        {
+                            foreach (var pos in positionsProp.EnumerateArray())
+                            {
+                                var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
+                                var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
+                                apiLine.Positions.Add(new Position { Col = col, Row = row });
+                            }
+                        }
+                        
+                        apiWinningLines.Add(apiLine);
+                        await JS.InvokeVoidAsync("console.log", $"Added winning line: Symbol='{apiLine.Symbol}', Count={apiLine.Count}, WinAmount={apiLine.WinAmount}, Positions={apiLine.Positions.Count}, SvgPath='{apiLine.SvgPath}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        await JS.InvokeVoidAsync("console.error", $"Error parsing winning line: {ex.Message}");
+                    }
+                }
+                
+                await JS.InvokeVoidAsync("console.log", $"Total winning lines processed: {apiWinningLines.Count}");
+                ProcessWinningLinesFromApi(apiWinningLines);
+                await JS.InvokeVoidAsync("console.log", $"Frontend winning lines: {winningLines.Count}, Winning positions: {winningPositions.Count}");
+                
+                // Force UI update to show winning lines
+                StateHasChanged();
+
+                // Parse stats
+                currentRtp = root.GetProperty("rtp").GetDouble();
+                currentHitRate = root.GetProperty("hitRate").GetDouble();
+                totalSpins++;
+
+                await JS.InvokeVoidAsync("console.log", $"Spin completed - TotalWin: {lastSpinResult?.TotalWin}, RTP: {currentRtp}, HitRate: {currentHitRate}");
+
+                // Update charts
+                await UpdateChartsWithNewData();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.error", $"API Error: {response.StatusCode} - {errorContent}");
+                await JS.InvokeVoidAsync("alert", "Spin failed. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Spin error:", ex.Message);
+            await JS.InvokeVoidAsync("alert", "Spin failed. Please try again.");
+        }
+        finally
+        {
+            isSpinning = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetSymbolClass(string symbol)
+    {
+        return symbol switch
+        {
+            "SYM0" => "scatter",
+            "SYM1" => "wild",
+            "SYM2" => "bonus",
+            "SYM3" or "SYM4" or "SYM5" or "SYM6" => "high-pay",
+            _ => ""
+        };
+    }
+
+    private async Task InitializeCharts()
+    {
+        // Initialize with some sample data
+        rtpLabels = new List<string> { "Start" };
+        rtpData = new List<double> { 0.88 };
+        rtpTargetData = new List<double> { 0.88 };
+        hitRateLabels = new List<string> { "Start" };
+        hitRateData = new List<double> { 0.35 };
+        hitRateTargetData = new List<double> { 0.35 };
+
+        await RenderCharts();
+        
+        // Add debug logging
+        await JS.InvokeVoidAsync("console.log", "Charts initialization completed");
+        await JS.InvokeVoidAsync("console.log", $"Chart.js available: {await JS.InvokeAsync<bool>("eval", "window.Chart !== undefined")}");
+    }
+
+    private async Task RenderCharts()
+    {
+        try
+        {
+            // Wait a bit to ensure DOM is ready
+            await Task.Delay(100);
+            
+            // RTP Chart
+            await JS.InvokeVoidAsync("eval", $@"
+                console.log('Initializing RTP Chart...');
+                if (window.Chart) {{
+                    var canvas = document.getElementById('rtpChartSmall');
+                    if (canvas) {{
+                        if(window.rtpChartSmallInstance) window.rtpChartSmallInstance.destroy();
+                        var ctx = canvas.getContext('2d');
+                        window.rtpChartSmallInstance = new Chart(ctx, {{
+                            type: 'line',
+                            data: {{
+                                labels: {ToJsArray(rtpLabels)},
+                                datasets: [
+                                    {{
+                                        label: 'Actual RTP',
+                                        data: {ToJsArray(rtpData)},
+                                        borderColor: 'blue',
+                                        backgroundColor: 'rgba(0,0,255,0.1)',
+                                        fill: false
+                                    }},
+                                    {{
+                                        label: 'Target RTP',
+                                        data: {ToJsArray(rtpTargetData)},
+                                        borderColor: 'red',
+                                        backgroundColor: 'rgba(255,0,0,0.1)',
+                                        borderDash: [5, 5],
+                                        fill: false
+                                    }}
+                                ]
+                            }},
+                            options: {{ 
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {{
+                                    legend: {{
+                                        display: true
+                                    }}
+                                }}
+                            }}
+                        }});
+                        console.log('RTP Chart initialized successfully');
+                    }} else {{
+                        console.error('RTP Chart canvas not found');
+                    }}
+                }} else {{
+                    console.error('Chart.js not loaded');
+                }}
+            ");
+
+            // Hit Rate Chart
+            await JS.InvokeVoidAsync("eval", $@"
+                console.log('Initializing Hit Rate Chart...');
+                if (window.Chart) {{
+                    var canvas = document.getElementById('hitRateChartSmall');
+                    if (canvas) {{
+                        if(window.hitRateChartSmallInstance) window.hitRateChartSmallInstance.destroy();
+                        var ctx = canvas.getContext('2d');
+                        window.hitRateChartSmallInstance = new Chart(ctx, {{
+                            type: 'line',
+                            data: {{
+                                labels: {ToJsArray(hitRateLabels)},
+                                datasets: [
+                                    {{
+                                        label: 'Actual Hit Rate',
+                                        data: {ToJsArray(hitRateData)},
+                                        borderColor: 'green',
+                                        backgroundColor: 'rgba(0,255,0,0.1)',
+                                        fill: false
+                                    }},
+                                    {{
+                                        label: 'Target Hit Rate',
+                                        data: {ToJsArray(hitRateTargetData)},
+                                        borderColor: 'orange',
+                                        backgroundColor: 'rgba(255,165,0,0.1)',
+                                        borderDash: [5, 5],
+                                        fill: false
+                                    }}
+                                ]
+                            }},
+                            options: {{ 
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {{
+                                    legend: {{
+                                        display: true
+                                    }}
+                                }}
+                            }}
+                        }});
+                        console.log('Hit Rate Chart initialized successfully');
+                    }} else {{
+                        console.error('Hit Rate Chart canvas not found');
+                    }}
+                }} else {{
+                    console.error('Chart.js not loaded');
+                }}
+            ");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chart initialization error: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateChartsWithNewData()
+    {
+        if (!chartsInitialized) return;
+
+        // Add new data points
+        rtpLabels.Add($"Spin {totalSpins}");
+        hitRateLabels.Add($"Spin {totalSpins}");
+        rtpData.Add(currentRtp);
+        rtpTargetData.Add(0.88); // Target RTP
+        hitRateData.Add(currentHitRate);
+        hitRateTargetData.Add(0.35); // Target Hit Rate
+
+        // Update RTP Chart
+        await JS.InvokeVoidAsync("eval", $@"
+            if (window.rtpChartSmallInstance) {{
+                window.rtpChartSmallInstance.data.labels.push('{rtpLabels.Last()}');
+                window.rtpChartSmallInstance.data.datasets[0].data.push({rtpData.Last()});
+                window.rtpChartSmallInstance.data.datasets[1].data.push({rtpTargetData.Last()});
+                window.rtpChartSmallInstance.update('none');
+            }}
+        ");
+
+        // Update Hit Rate Chart
+        await JS.InvokeVoidAsync("eval", $@"
+            if (window.hitRateChartSmallInstance) {{
+                window.hitRateChartSmallInstance.data.labels.push('{hitRateLabels.Last()}');
+                window.hitRateChartSmallInstance.data.datasets[0].data.push({hitRateData.Last()});
+                window.hitRateChartSmallInstance.data.datasets[1].data.push({hitRateTargetData.Last()});
+                window.hitRateChartSmallInstance.update('none');
+            }}
+        ");
+    }
+
+    private string ToJsArray(IEnumerable<double> data) => "[" + string.Join(",", data) + "]";
+    private string ToJsArray(IEnumerable<string> data) => "[" + string.Join(",", data.Select(x => $"'" + x + "'")) + "]";
+} 

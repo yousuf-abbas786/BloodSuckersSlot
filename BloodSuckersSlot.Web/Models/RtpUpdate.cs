@@ -47,7 +47,7 @@ namespace BloodSuckersSlot.Web.Models
         public int SafeFallbackCount { get; set; }
         
         [JsonPropertyName("chosenReelSetName")]
-        public string ChosenReelSetName { get; set; }
+        public string ChosenReelSetName { get; set; } = "";
         
         [JsonPropertyName("chosenReelSetExpectedRtp")]
         public double ChosenReelSetExpectedRtp { get; set; }

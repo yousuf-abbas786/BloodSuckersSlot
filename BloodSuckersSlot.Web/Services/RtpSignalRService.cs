@@ -11,7 +11,8 @@ namespace BloodSuckersSlot.Web.Services
 
         public RtpSignalRService(IConfiguration configuration)
         {
-            var apiBaseUrl = configuration["ApiBaseUrl"] ?? "https://localhost:7021";
+            var apiBaseUrl = configuration["ApiBaseUrl"] ?? "http://37.27.71.156:5000";
+            Console.WriteLine($"[SignalR] Using API base URL: {apiBaseUrl}");
             _hubConnection = new HubConnectionBuilder()
                 .WithUrl($"{apiBaseUrl}/rtpHub")
                 .WithAutomaticReconnect()

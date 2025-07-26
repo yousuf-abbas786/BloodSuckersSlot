@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
-using BloodSuckersSlot.Api.Models;
+using Shared;
 using System.Threading.Tasks;
 using System;
 

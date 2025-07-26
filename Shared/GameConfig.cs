@@ -71,7 +71,7 @@ namespace Shared
         }
         public static GameConfig CreateBalanced()
         {
-            return new GameConfig
+            var config = new GameConfig
             {
                 RtpTarget = 0.88,
                 TargetHitRate = 0.35, // Balanced hit rate
@@ -81,6 +81,60 @@ namespace Shared
                 CriticalRtpThreshold = 1.20,
                 MaxRtpPerSet = 1.3,
                 MinRtpPerSet = 0.5
+            };
+            
+            // Initialize paylines and symbols
+            InitializePaylinesAndSymbols(config);
+            
+            return config;
+        }
+        
+        private static void InitializePaylinesAndSymbols(GameConfig config)
+        {
+            // Initialize paylines (25 paylines)
+            config.Paylines = new List<int[]>
+            {
+                new int[] { 1, 1, 1, 1, 1 }, // Middle horizontal
+                new int[] { 0, 0, 0, 0, 0 }, // Top horizontal
+                new int[] { 2, 2, 2, 2, 2 }, // Bottom horizontal
+                new int[] { 0, 1, 2, 1, 0 }, // V shape
+                new int[] { 2, 1, 0, 1, 2 }, // Inverted V
+                new int[] { 0, 0, 1, 2, 2 }, // Diagonal left to right
+                new int[] { 2, 2, 1, 0, 0 }, // Diagonal right to left
+                new int[] { 0, 1, 1, 1, 0 }, // U shape
+                new int[] { 2, 1, 1, 1, 2 }, // Inverted U
+                new int[] { 1, 0, 1, 2, 1 }, // W shape
+                new int[] { 1, 2, 1, 0, 1 }, // Inverted W
+                new int[] { 0, 1, 0, 1, 0 }, // Zigzag
+                new int[] { 2, 1, 2, 1, 2 }, // Inverted zigzag
+                new int[] { 1, 1, 0, 1, 1 }, // H shape
+                new int[] { 1, 1, 2, 1, 1 }, // Inverted H
+                new int[] { 0, 1, 2, 2, 2 }, // Diagonal to bottom
+                new int[] { 2, 1, 0, 0, 0 }, // Diagonal to top
+                new int[] { 1, 2, 2, 2, 1 }, // M shape
+                new int[] { 1, 0, 0, 0, 1 }, // Inverted M
+                new int[] { 0, 0, 1, 1, 2 }, // Diagonal bottom left
+                new int[] { 2, 2, 1, 1, 0 }, // Diagonal top right
+                new int[] { 0, 1, 2, 1, 2 }, // S shape
+                new int[] { 2, 1, 0, 1, 0 }, // Inverted S
+                new int[] { 1, 0, 1, 2, 0 }, // Z shape
+                new int[] { 1, 2, 1, 0, 2 }  // Inverted Z
+            };
+            
+            // Initialize symbols with payouts
+            config.Symbols = new Dictionary<string, SymbolConfig>
+            {
+                ["SYM0"] = new SymbolConfig { IsScatter = true, Payouts = new Dictionary<int, double> { { 3, 5 }, { 4, 20 }, { 5, 100 } } },
+                ["SYM1"] = new SymbolConfig { IsWild = true, Payouts = new Dictionary<int, double> { { 2, 2 }, { 3, 5 }, { 4, 20 }, { 5, 100 } } },
+                ["SYM2"] = new SymbolConfig { IsBonus = true, Payouts = new Dictionary<int, double> { { 3, 10 }, { 4, 50 }, { 5, 200 } } },
+                ["SYM3"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 15 }, { 4, 75 }, { 5, 300 } } },
+                ["SYM4"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 12 }, { 4, 60 }, { 5, 250 } } },
+                ["SYM5"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 10 }, { 4, 50 }, { 5, 200 } } },
+                ["SYM6"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 8 }, { 4, 40 }, { 5, 150 } } },
+                ["SYM7"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 6 }, { 4, 30 }, { 5, 100 } } },
+                ["SYM8"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 4 }, { 4, 20 }, { 5, 75 } } },
+                ["SYM9"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 3 }, { 4, 15 }, { 5, 50 } } },
+                ["SYM10"] = new SymbolConfig { Payouts = new Dictionary<int, double> { { 3, 2 }, { 4, 10 }, { 5, 25 } } }
             };
         }
         // Method to validate configuration

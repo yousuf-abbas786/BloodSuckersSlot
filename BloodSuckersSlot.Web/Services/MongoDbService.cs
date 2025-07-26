@@ -43,7 +43,7 @@ namespace BloodSuckersSlot.Web.Services
             _configuration = configuration;
             
             // Set the base address to the API
-            var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "https://localhost:7001";
+            var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "http://37.27.71.156:5000";
             _httpClient.BaseAddress = new Uri(apiBaseUrl);
         }
 

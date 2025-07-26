@@ -8,6 +8,9 @@ using Blazorise.Charts;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
+// Load configuration from appsettings.json
+builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+
 builder.Services
     .AddBlazorise(options => { options.Immediate = true; })
     .AddBootstrapProviders()
