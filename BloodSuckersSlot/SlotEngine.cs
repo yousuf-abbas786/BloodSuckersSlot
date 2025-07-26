@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using Microsoft.AspNetCore.SignalR.Client;
 using BloodSuckersSlot.Api.Models;
+using Shared;
 
 namespace BloodSuckersSlot
 {
@@ -131,7 +132,7 @@ namespace BloodSuckersSlot
             Console.WriteLine($"\n───────────────────────");
             Console.WriteLine($"Spin #{spinCounter}");
 
-            var reelSets = GenerateRandomReelSets(); // 🔼 Reduced from 500 to 200 for faster processing
+            var reelSets = GenerateRandomReelSets();
 
             if (isFreeSpin)
             {
@@ -141,7 +142,7 @@ namespace BloodSuckersSlot
 
             foreach (var reelSet in reelSets)
             {
-                EstimateRtpAndHitRate(reelSet, 5000, betAmount); // 🔼 Increased to 5000 spins for better accuracy
+                EstimateRtpAndHitRate(reelSet, 5000, betAmount);
                 reelSet.RtpWeight = CalculateWeight(reelSet.ExpectedRtp, _config.RtpTarget);
                 reelSet.HitWeight = CalculateWeight(reelSet.EstimatedHitRate, _config.TargetHitRate);
             }

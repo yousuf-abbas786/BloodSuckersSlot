@@ -1,0 +1,423 @@
+@page "/reelsets"
+@using BloodSuckersSlot.Web.Services
+@inject MongoDbService MongoDbService
+@inject NavigationManager Navigation
+
+<PageTitle>Reel Sets - BloodSuckersSlot</PageTitle>
+
+<style>
+    .filter-card {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        border-radius: 12px;
+    }
+    .search-btn {
+        border-radius: 8px;
+        transition: all 0.2s ease;
+        min-width: 80px;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+    }
+    .search-btn:hover, .search-btn:focus {
+        background: #0056b3 !important;
+        color: #fff !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .pagination-btn {
+        transition: all 0.2s ease;
+        border-radius: 6px;
+        min-width: 45px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 2px;
+        font-size: 0.8rem;
+    }
+    .pagination-btn:hover:not(:disabled), .pagination-btn:focus:not(:disabled) {
+        background: #e9ecef !important;
+        color: #0056b3 !important;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .pagination-btn:active {
+        background: #d0d7de !important;
+        color: #003366 !important;
+        transform: translateY(0);
+    }
+    .pagination-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .page-jump-input {
+        width: 70px;
+        border-radius: 6px;
+        margin: 0 4px;
+        height: 32px;
+        text-align: center;
+    }
+    .result-range {
+        font-size: 0.9rem;
+        color: #666;
+        margin-right: 15px;
+        white-space: nowrap;
+    }
+    .page-info {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 4px 12px;
+        margin: 0 8px;
+        min-width: 120px;
+        text-align: center;
+        font-size: 0.9rem;
+    }
+    @@media (max-width: 768px) {
+        .filter-card .row {
+            flex-direction: column;
+        }
+        .pagination-btn, .page-jump-input {
+            width: 100%;
+            margin-bottom: 6px;
+        }
+        .d-flex.flex-wrap {
+            flex-direction: column;
+            align-items: stretch !important;
+        }
+        .result-range {
+            margin-bottom: 10px;
+            text-align: center;
+        }
+    }
+</style>
+
+<div class="container-fluid">
+    <!-- Filters -->
+    <div class="card mb-4 filter-card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filters</h5>
+        </div>
+        <div class="card-body">
+            <form @onsubmit="OnSearchSubmit">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label">Search</label>
+                        <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput" placeholder="Search by name..." @onkeydown="OnSearchKeyDown" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Tag</label>
+                        <select class="form-select" @bind="selectedTag">
+                            <option value="">All Tags</option>
+                            @if (availableTags != null)
+                            {
+                                @foreach (var tag in availableTags)
+                                {
+                                    <option value="@tag">@tag</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Min RTP</label>
+                        <input type="number" class="form-control" @bind="minRtp" @bind:event="oninput" step="0.01" min="0" max="1" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Max RTP</label>
+                        <input type="number" class="form-control" @bind="maxRtp" @bind:event="oninput" step="0.01" min="0" max="1" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Page Size</label>
+                        <select class="form-select" @bind="pageSize">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary search-btn w-100" title="Search">
+                            <i class="fas fa-search me-1"></i>Search
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading reel sets...</p>
+        </div>
+    }
+    else
+    {
+        <!-- Results -->
+        @if (result != null)
+        {
+            <div class="card">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>Reel Sets (@result.TotalCount.ToString("N0") total)
+                    </h5>
+                    <div class="d-flex align-items-center flex-wrap">
+                        <span class="result-range">
+                            Showing @((result.PageNumber - 1) * result.PageSize + 1)
+                            –
+                            @(Math.Min(result.PageNumber * result.PageSize, result.TotalCount))
+                            of @result.TotalCount
+                        </span>
+                        
+                        <!-- Pagination Controls -->
+                        <div class="d-flex align-items-center">
+                            <!-- First Page -->
+                            <button class="btn btn-outline-secondary btn-sm pagination-btn" 
+                                    @onclick="() => ChangePage(1)" 
+                                    disabled="@(result.PageNumber <= 1)" 
+                                    title="First Page">
+                                <i class="fas fa-angle-double-left"></i>
+                                <span class="d-none d-sm-inline ms-1">First</span>
+                            </button>
+                            
+                            <!-- Previous Page -->
+                            <button class="btn btn-outline-secondary btn-sm pagination-btn" 
+                                    @onclick="() => ChangePage(result.PageNumber - 1)" 
+                                    disabled="@(result.PageNumber <= 1)" 
+                                    title="Previous Page">
+                                <i class="fas fa-angle-left"></i>
+                                <span class="d-none d-sm-inline ms-1">Prev</span>
+                            </button>
+                            
+                            <!-- Page Info -->
+                            <span class="page-info">
+                                Page <strong>@result.PageNumber</strong> of <strong>@result.TotalPages</strong>
+                            </span>
+                            
+                            <!-- Next Page -->
+                            <button class="btn btn-outline-secondary btn-sm pagination-btn" 
+                                    @onclick="() => ChangePage(result.PageNumber + 1)" 
+                                    disabled="@(result.PageNumber >= result.TotalPages)" 
+                                    title="Next Page">
+                                <i class="fas fa-angle-right"></i>
+                                <span class="d-none d-sm-inline ms-1">Next</span>
+                            </button>
+                            
+                            <!-- Last Page -->
+                            <button class="btn btn-outline-secondary btn-sm pagination-btn" 
+                                    @onclick="() => ChangePage(result.TotalPages)" 
+                                    disabled="@(result.PageNumber >= result.TotalPages)" 
+                                    title="Last Page">
+                                <i class="fas fa-angle-double-right"></i>
+                                <span class="d-none d-sm-inline ms-1">Last</span>
+                            </button>
+                            
+                            <!-- Page Jump -->
+                            <input type="number" 
+                                   min="1" 
+                                   max="@result.TotalPages" 
+                                   class="form-control page-jump-input" 
+                                   @bind="jumpToPage" 
+                                   @bind:event="oninput" 
+                                   placeholder="Page" 
+                                   title="Jump to page..." />
+                            
+                            <button class="btn btn-outline-primary btn-sm pagination-btn" 
+                                    @onclick="() => ChangePage(jumpToPage)" 
+                                    disabled="@(jumpToPage < 1 || jumpToPage > result.TotalPages)" 
+                                    title="Go to page">
+                                Go
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover mb-0">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Tag</th>
+                                    <th>Expected RTP</th>
+                                    <th>Hit Rate</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var reelSet in result.Items)
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong>@reelSet.Name</strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge @GetTagBadgeClass(reelSet.Tag)">@reelSet.Tag</span>
+                                        </td>
+                                        <td>
+                                            <span class="fw-bold @GetRtpColorClass(reelSet.ExpectedRtp)">
+                                                @reelSet.ExpectedRtp.ToString("P2")
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="fw-bold @GetHitRateColorClass(reelSet.EstimatedHitRate)">
+                                                @reelSet.EstimatedHitRate.ToString("P2")
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">@reelSet.CreatedAt.ToString("yyyy-MM-dd HH:mm")</small>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewDetails(reelSet.Id)">
+                                                <i class="fas fa-eye"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private PaginatedResult<ReelSetListItem>? result;
+    private Dictionary<string, object>? stats;
+    private List<string>? availableTags;
+    private bool isLoading = true;
+
+    // Filter parameters
+    private string searchTerm = "";
+    private string selectedTag = "";
+    private double? minRtp;
+    private double? maxRtp;
+    private int pageSize = 50;
+    private int currentPage = 1;
+    private int jumpToPage = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            // Load data in parallel
+            var tasks = new List<Task>
+            {
+                LoadReelSets(),
+                LoadStats(),
+                LoadTags()
+            };
+
+            await Task.WhenAll(tasks);
+        }
+        catch (Exception ex)
+        {
+            // Handle error - you might want to show a toast notification
+            Console.WriteLine($"Error loading data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadReelSets()
+    {
+        result = await MongoDbService.GetReelSetsAsync(
+            currentPage,
+            pageSize,
+            string.IsNullOrEmpty(selectedTag) ? null : selectedTag,
+            minRtp,
+            maxRtp,
+            string.IsNullOrEmpty(searchTerm) ? null : searchTerm
+        );
+        jumpToPage = currentPage;
+    }
+
+    private async Task LoadStats()
+    {
+        stats = await MongoDbService.GetStatsAsync();
+    }
+
+    private async Task LoadTags()
+    {
+        availableTags = await MongoDbService.GetAvailableTagsAsync();
+    }
+
+    private async Task ChangePage(int page)
+    {
+        if (page < 1 || (result != null && page > result.TotalPages))
+            return;
+        currentPage = page;
+        await LoadReelSets();
+    }
+
+    private void ViewDetails(string id)
+    {
+        Navigation.NavigateTo($"/reelsets/{id}");
+    }
+
+    private string GetTagBadgeClass(string tag)
+    {
+        return tag switch
+        {
+            "HighRtp" => "bg-success",
+            "MidRtp" => "bg-warning",
+            "LowRtp" => "bg-danger",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetRtpColorClass(double rtp)
+    {
+        return rtp switch
+        {
+            >= 0.95 => "text-success",
+            >= 0.90 => "text-primary",
+            >= 0.85 => "text-warning",
+            _ => "text-danger"
+        };
+    }
+
+    private string GetHitRateColorClass(double hitRate)
+    {
+        return hitRate switch
+        {
+            >= 0.50 => "text-success",
+            >= 0.35 => "text-primary",
+            >= 0.25 => "text-warning",
+            _ => "text-danger"
+        };
+    }
+
+    private async Task OnSearchSubmit()
+    {
+        currentPage = 1;
+        await LoadReelSets();
+    }
+
+    private async Task OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await OnSearchSubmit();
+        }
+    }
+} 

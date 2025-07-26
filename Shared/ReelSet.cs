@@ -1,6 +1,4 @@
-﻿
-
-namespace BloodSuckersSlot
+namespace Shared
 {
     public class ReelSet
     {
@@ -11,5 +9,4 @@ namespace BloodSuckersSlot
         public double RtpWeight { get; set; }
         public double HitWeight { get; set; }
     }
-
-}
+} 

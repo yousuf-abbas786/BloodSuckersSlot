@@ -1,6 +1,4 @@
-﻿
-
-namespace BloodSuckersSlot
+namespace Shared
 {
     public class SpinResult
     {
@@ -10,6 +8,4 @@ namespace BloodSuckersSlot
         public bool IsFreeSpin { get; set; }
         public bool BonusTriggered { get; set; }
     }
-
-
-}
+} 

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BloodSuckersSlot.Api\BloodSuckersSlot.Api.csproj" />
+    <ProjectReference Include="..\Shared\Shared.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.7" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
   </ItemGroup>

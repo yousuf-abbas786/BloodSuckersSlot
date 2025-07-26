@@ -1,58 +1,45 @@
-﻿
+using System;
+using System.Collections.Generic;
 
-namespace BloodSuckersSlot
+namespace Shared
 {
     public class GameConfig
     {
         // Core RTP and Hit Rate Targets
         public double RtpTarget { get; set; } = 0.88; // Default target RTP (88%)
         public double TargetHitRate { get; set; } = 0.35; // Target hit rate (35%) - adjustable
-        
         // RTP Control Parameters
         public double RtpTolerance { get; set; } = 0.05; // ±5% tolerance around target
         public double MaxRtpPerSet { get; set; } = 1.3; // Maximum RTP allowed per reel set
         public double MinRtpPerSet { get; set; } = 0.5; // Minimum RTP allowed per reel set
-        
         // Hit Rate Control Parameters
         public double HitRateTolerance { get; set; } = 0.15; // ±15% tolerance around target
         public double MaxHitRatePerSet { get; set; } = 0.8; // Maximum hit rate allowed per reel set
         public double MinHitRatePerSet { get; set; } = 0.1; // Minimum hit rate allowed per reel set
-        
         // RTP Recovery Settings
         public double HighRtpThreshold { get; set; } = 1.05; // RTP > 105% triggers aggressive low RTP selection
         public double CriticalRtpThreshold { get; set; } = 1.20; // RTP > 120% triggers very aggressive low RTP selection
         public double LowRtpThreshold { get; set; } = 0.75; // RTP < 75% triggers high RTP selection
-        
         // Reel Set Generation
         public int ReelSetsToGenerate { get; set; } = 50; // Number of reel sets to generate per spin
-        public int MonteCarloSpins { get; set; } = 1000; // Number of spins for RTP estimation
-        
+        public int MonteCarloSpins { get; set; } = 500000; // Number of spins for RTP estimation
         // Safety and Filtering
         public bool EnableScatterGuards { get; set; } = true; // Enable scatter flood protection
         public bool EnableWildGuards { get; set; } = true; // Enable wild flood protection
         public int MaxScattersPerReelSet { get; set; } = 6; // Maximum scatters allowed per reel set
         public int MaxWildsPerReelSet { get; set; } = 7; // Maximum wilds allowed per reel set
-        
         // Free Spins Configuration
         public int BaseBetForFreeSpins { get; set; } = 25; // Used when free spins don't cost a bet
         public int MaxFreeSpinsPerSession { get; set; } = 50; // Maximum free spins per session
-        
         // Paylines
         public List<int[]> Paylines { get; set; } = new(); // List of 5-column payline patterns
-        
         // Symbol Configuration
-        public Dictionary<string, SymbolConfig> Symbols { get; set; }
-        
+        public Dictionary<string, SymbolConfig> Symbols { get; set; } = new();
         // Debug and Logging
         public bool EnableDetailedLogging { get; set; } = true; // Enable detailed console logging
         public bool EnableRtpDebugging { get; set; } = false; // Enable RTP debugging information
-        
         // Constructor with common presets
-        public GameConfig()
-        {
-            // Initialize with default values
-        }
-        
+        public GameConfig() { }
         // Preset configurations for different game types
         public static GameConfig CreateHighVolatility()
         {
@@ -68,7 +55,6 @@ namespace BloodSuckersSlot
                 MinRtpPerSet = 0.4
             };
         }
-        
         public static GameConfig CreateLowVolatility()
         {
             return new GameConfig
@@ -83,7 +69,6 @@ namespace BloodSuckersSlot
                 MinRtpPerSet = 0.6
             };
         }
-        
         public static GameConfig CreateBalanced()
         {
             return new GameConfig
@@ -98,7 +83,6 @@ namespace BloodSuckersSlot
                 MinRtpPerSet = 0.5
             };
         }
-        
         // Method to validate configuration
         public bool Validate()
         {
@@ -107,28 +91,23 @@ namespace BloodSuckersSlot
                 Console.WriteLine("[CONFIG ERROR] RtpTarget must be between 0 and 1.0");
                 return false;
             }
-            
             if (TargetHitRate <= 0 || TargetHitRate > 1.0)
             {
                 Console.WriteLine("[CONFIG ERROR] TargetHitRate must be between 0 and 1.0");
                 return false;
             }
-            
             if (MaxRtpPerSet <= MinRtpPerSet)
             {
                 Console.WriteLine("[CONFIG ERROR] MaxRtpPerSet must be greater than MinRtpPerSet");
                 return false;
             }
-            
             if (MaxHitRatePerSet <= MinHitRatePerSet)
             {
                 Console.WriteLine("[CONFIG ERROR] MaxHitRatePerSet must be greater than MinHitRatePerSet");
                 return false;
             }
-            
             return true;
         }
-        
         // Method to print current configuration
         public void PrintConfiguration()
         {
@@ -147,4 +126,4 @@ namespace BloodSuckersSlot
             Console.WriteLine("========================");
         }
     }
-}
+} 

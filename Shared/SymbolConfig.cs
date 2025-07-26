@@ -1,6 +1,4 @@
-﻿
-
-namespace BloodSuckersSlot
+namespace Shared
 {
     public class SymbolConfig
     {
@@ -10,4 +8,4 @@ namespace BloodSuckersSlot
         public bool IsBonus { get; set; } = false;
         public Dictionary<int, double> Payouts { get; set; } = new();
     }
-}
+} 
