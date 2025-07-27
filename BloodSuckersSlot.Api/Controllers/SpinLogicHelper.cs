@@ -18,10 +18,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private static int _freeSpinsAwarded = 0; // FIXED: Add missing free spin tracking
         private static int _totalFreeSpinsAwarded = 0; // FIXED: Track total free spins awarded
         private static int _totalBonusesTriggered = 0; // FIXED: Track total bonuses triggered
-        private static int _freeSpinRetryCount = 0;
-        private const int MaxFreeSpinRetries = 10;
         private const int MaxFreeSpinsPerSession = 50; // FIXED: Add free spin session limit
-        private static readonly bool _freeSpinRtpGuardEnabled = true; // FIXED: Add free spin RTP guard flag
         private static double _totalBet = 0;
         private static double _totalWin = 0;
         private static int _hitCount = 0;
@@ -38,7 +35,7 @@ namespace BloodSuckersSlot.Api.Controllers
             bool isFreeSpin = _freeSpinsRemaining > 0;
             double currentRtpBeforeSpin = GetActualRtp();
 
-            // Correction logic (same as original)
+            // Correction logic
             if (currentRtpBeforeSpin > config.RtpTarget)
             {
                 _spinsAboveTarget++;
@@ -55,25 +52,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 _spinsBelowTarget = 0;
             }
 
-            if (isFreeSpin && _freeSpinRtpGuardEnabled && currentRtpBeforeSpin > config.RtpTarget * 1.15)
-            {
-                _freeSpinRetryCount++;
-                if (_freeSpinRetryCount > MaxFreeSpinRetries)
-                {
-                    Console.WriteLine("[Free Spin Delay] Max retries exceeded. Forcing execution.");
-                }
-                else
-                {
-                    if (_freeSpinRetryCount % 3 == 0)
-                        Console.WriteLine($"[Free Spin Delay] Retry {_freeSpinRetryCount} — RTP too high: {currentRtpBeforeSpin:F2}");
-                    Thread.Sleep(200);
-                    return (null, null, null, null);
-                }
-            }
-            else
-            {
-                _freeSpinRetryCount = 0;
-            }
+            // REMOVED: Free spin RTP guard - allowing free spins to have naturally high RTP
+            // This is normal behavior for free spins in slot games
 
             if (isFreeSpin)
                 _freeSpinsRemaining--;
@@ -163,11 +143,8 @@ namespace BloodSuckersSlot.Api.Controllers
             double maxMultiplier = 75.0; // Cap win to 75x of bet
             totalWin = Math.Min(totalWin, betAmount * maxMultiplier);
 
-            if (spinCounter < 25 && totalWin > betAmount * 15)
-            {
-                Console.WriteLine($"[Early Spin Control] Dampened spin win from {totalWin} to {betAmount * 15}");
-                totalWin = betAmount * 15;  // Damp early big wins
-            }
+            // REMOVED: Early spin control - allowing natural big wins to occur
+            // This allows for more realistic slot game behavior
 
             _totalBet += betAmount;
             _totalWin += totalWin;
@@ -495,26 +472,39 @@ namespace BloodSuckersSlot.Api.Controllers
             foreach (var line in paylines)
             {
                 int count = 0;
+                var bonusPositions = new List<Position>();
+                
                 for (int col = 0; col < 5; col++)
                 {
                     string symbol = grid[col][line[col]];
-                    if (symbol == "SYM2") count++;
-                    else break;
-
-                    if (count >= 3)
+                    if (symbol == "SYM2") // Bonus symbol
                     {
-                        // FIXED: Add proper bonus tracking like original SlotEngine
-                        if (_isSimulationMode || spinCounter - _lastBonusSpin >= 50) // Reduced from 250 to 50 spins
-                        {
-                            if (!_isSimulationMode)
-                            {
-                                _lastBonusSpin = spinCounter;
-                                _totalBonusesTriggered++; // Track total bonuses triggered
-                            }
+                        count++;
+                        bonusPositions.Add(new Position { Col = col, Row = line[col] });
+                    }
+                    else break;
+                }
 
-                            bonusLog = $"Bonus Triggered! SYM2 x{count} on Payline: [{string.Join(",", line)}]";
-                            return true;
+                if (count >= 3) // Need 3 or more bonus symbols to trigger
+                {
+                    // Check cooldown period to prevent too frequent bonus triggers
+                    if (_isSimulationMode || spinCounter - _lastBonusSpin >= 50) // 50 spin cooldown
+                    {
+                        if (!_isSimulationMode)
+                        {
+                            _lastBonusSpin = spinCounter;
+                            _totalBonusesTriggered++; // Track total bonuses triggered
                         }
+
+                        bonusLog = $"🎰 BONUS TRIGGERED! Coffin symbols x{count} on payline [{string.Join(",", line)}] - Coffin Selection Bonus Game!";
+                        Console.WriteLine($"🎰 BONUS TRIGGERED: {count} coffin symbols on payline [{string.Join(",", line)}]");
+                        Console.WriteLine($"  Bonus positions: {string.Join(", ", bonusPositions.Select(p => $"({p.Col},{p.Row})"))}");
+                        
+                        return true;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"🎰 BONUS BLOCKED: Too soon since last bonus (spin {spinCounter - _lastBonusSpin} ago)");
                     }
                 }
             }
@@ -523,14 +513,66 @@ namespace BloodSuckersSlot.Api.Controllers
 
         private static double SimulateBonusGame(GameConfig config, double currentRtpBeforeSpin)
         {
-            double rtpDeficit = Math.Max(0, config.RtpTarget - currentRtpBeforeSpin);
-            double baseBonus = 10 + Math.Min(rtpDeficit * 20, 18);  // cap the scaling
-            double bonusWin = baseBonus + _rng.NextDouble() * 25;   // Was 30
-            double maxBonusWin = 40;                                // Was 45
-            bonusWin = Math.Min(bonusWin, maxBonusWin);
-
-            Console.WriteLine($"Bonus Game Win: {bonusWin:F1} coins");
-            return bonusWin;
+            // BloodSuckers Bonus Game: Coffin Selection
+            // The actual game has a coffin selection bonus where players pick coffins to reveal prizes
+            // Each coffin contains different multipliers or cash prizes
+            
+            Console.WriteLine("🎰 BONUS GAME TRIGGERED: Coffin Selection!");
+            
+            // Simulate coffin selection bonus game
+            int coffinSelections = 3; // Player gets 3 coffin picks
+            double totalBonusWin = 0;
+            var bonusDetails = new List<string>();
+            
+            for (int pick = 1; pick <= coffinSelections; pick++)
+            {
+                // Different coffin types with different prize distributions
+                double coffinWin = 0;
+                string coffinType = "";
+                
+                // Randomly determine coffin type and prize
+                double randomValue = _rng.NextDouble();
+                
+                if (randomValue < 0.4) // 40% chance - Small prize coffin
+                {
+                    coffinWin = 5 + _rng.NextDouble() * 10; // 5-15 coins
+                    coffinType = "Small Prize Coffin";
+                }
+                else if (randomValue < 0.7) // 30% chance - Medium prize coffin
+                {
+                    coffinWin = 15 + _rng.NextDouble() * 20; // 15-35 coins
+                    coffinType = "Medium Prize Coffin";
+                }
+                else if (randomValue < 0.9) // 20% chance - Large prize coffin
+                {
+                    coffinWin = 35 + _rng.NextDouble() * 30; // 35-65 coins
+                    coffinType = "Large Prize Coffin";
+                }
+                else // 10% chance - Jackpot coffin
+                {
+                    coffinWin = 65 + _rng.NextDouble() * 50; // 65-115 coins
+                    coffinType = "Jackpot Coffin";
+                }
+                
+                // Apply RTP scaling to balance the game
+                double rtpDeficit = Math.Max(0, config.RtpTarget - currentRtpBeforeSpin);
+                double rtpMultiplier = 1.0 + (rtpDeficit * 0.5); // Scale up when RTP is low
+                coffinWin *= rtpMultiplier;
+                
+                totalBonusWin += coffinWin;
+                bonusDetails.Add($"Pick {pick}: {coffinType} = {coffinWin:F1} coins");
+                
+                Console.WriteLine($"  Coffin {pick}: {coffinType} - {coffinWin:F1} coins");
+            }
+            
+            // Cap the maximum bonus win to prevent excessive payouts
+            double maxBonusWin = 150; // Cap at 150 coins
+            totalBonusWin = Math.Min(totalBonusWin, maxBonusWin);
+            
+            Console.WriteLine($"🎰 BONUS GAME COMPLETE: Total Win = {totalBonusWin:F1} coins");
+            Console.WriteLine($"  Details: {string.Join(" | ", bonusDetails)}");
+            
+            return totalBonusWin;
         }
 
         public static double GetActualRtp() => _totalBet == 0 ? 0 : _totalWin / _totalBet;

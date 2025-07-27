@@ -196,7 +196,7 @@ namespace BloodSuckersSlot.Api.Controllers
 
                 if (result == null || grid == null || chosenSet == null)
                 {
-                    _logger.LogWarning("Spin returned null values - this might be due to free spin retry logic or no valid reel sets");
+                    _logger.LogWarning("Spin returned null values - this might be due to no valid reel sets available");
                     return StatusCode(500, new { error = "Spin failed or was delayed." });
                 }
 
