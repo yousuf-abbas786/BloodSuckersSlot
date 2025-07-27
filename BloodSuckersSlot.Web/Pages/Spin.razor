@@ -67,12 +67,12 @@
                                  <h5>Spin Result</h5>
                                  @if (winningLines != null && winningLines.Count > 0)
                                  {
-                                     <div class="payline-legend mb-2">
-                                         <small>
-                                             <span style="color: gray;">⚫</span> Full Payline Path | 
-                                             <span style="color: yellow;">⚫</span> Winning Positions
-                                         </small>
-                                     </div>
+                                                                                    <div class="payline-legend mb-2">
+           <small>
+               <span style="color: gray;">⚫</span> Full Payline Path |
+               <span style="color: yellow;">⚫</span> Winning Positions
+           </small>
+       </div>
                                  }
                             <div class="slot-grid position-relative">
                                 @for (int row = 0; row < 3; row++)
@@ -167,16 +167,19 @@
                                     <h6>🧮 Winning Line Calculations (Testing):</h6>
                                     @foreach (var line in winningLines)
                                     {
-                                                                                 <div class="winning-line-detail">
-                                             <p><strong>Symbol:</strong> @line.Symbol</p>
-                                             <p><strong>Count:</strong> @line.Count</p>
-                                             <p><strong>Win Amount:</strong> @line.WinAmount</p>
-                                             <p><strong>Payline Type:</strong> @line.PaylineType</p>
-                                             <p><strong>Payline Index:</strong> @(line.PaylineIndex >= 0 ? $"#{line.PaylineIndex + 1}" : "N/A")</p>
-                                             <p><strong>Winning Positions:</strong> @string.Join(", ", line.Positions.Select(p => $"({p.Col},{p.Row})"))</p>
-                                             <p><strong>Full Payline Path:</strong> @string.Join(", ", line.FullPaylinePath.Select(p => $"({p.Col},{p.Row})"))</p>
-                                             <p><strong>SVG Path:</strong> <code>@line.Path</code></p>
-                                         </div>
+                                        <div class="winning-line-detail">
+                                            <p><strong>Symbol:</strong> 
+                                                <img src="/images/symbols/@(GetSymbolImageName(line.Symbol))" alt="@line.Symbol" style="width: 30px; height: 30px; vertical-align: middle; margin-right: 5px;" />
+                                                @line.Symbol
+                                            </p>
+                                            <p><strong>Count:</strong> @line.Count</p>
+                                            <p><strong>Win Amount:</strong> @line.WinAmount</p>
+                                            <p><strong>Payline Type:</strong> @line.PaylineType</p>
+                                            <p><strong>Payline Index:</strong> @(line.PaylineIndex >= 0 ? $"#{line.PaylineIndex + 1}" : "N/A")</p>
+                                            <p><strong>Winning Positions:</strong> @string.Join(", ", line.Positions.Select(p => $"({p.Col},{p.Row})"))</p>
+                                            <p><strong>Full Payline Path:</strong> @string.Join(", ", line.FullPaylinePath.Select(p => $"({p.Col},{p.Row})"))</p>
+                                            <p><strong>SVG Path:</strong> <code>@line.Path</code></p>
+                                        </div>
                                     }
                                 </div>
                             }
@@ -1157,5 +1160,24 @@
          }
          
          return path.ToString();
+     }
+     
+     private string GetSymbolImageName(string symbol)
+     {
+         // Convert symbol name (e.g., "SYM0") to image filename (e.g., "sym0.png")
+         if (string.IsNullOrEmpty(symbol)) return "sym0.png";
+         
+         // Extract the number from the symbol name
+         if (symbol.StartsWith("SYM", StringComparison.OrdinalIgnoreCase))
+         {
+             string numberPart = symbol.Substring(3);
+             if (int.TryParse(numberPart, out int number))
+             {
+                 return $"sym{number}.png";
+             }
+         }
+         
+         // Fallback to sym0.png if parsing fails
+         return "sym0.png";
      }
 } 
