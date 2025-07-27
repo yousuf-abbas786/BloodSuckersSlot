@@ -577,5 +577,24 @@ namespace BloodSuckersSlot.Api.Controllers
 
         public static double GetActualRtp() => _totalBet == 0 ? 0 : _totalWin / _totalBet;
         public static double GetActualHitRate() => spinCounter == 0 ? 0 : (double)_hitCount / spinCounter;
+
+        // Reset all static variables to start fresh
+        public static void ResetAllStats()
+        {
+            spinCounter = 0;
+            _spinsAboveTarget = 0;
+            _spinsBelowTarget = 0;
+            _freeSpinsRemaining = 0;
+            _freeSpinsAwarded = 0;
+            _totalFreeSpinsAwarded = 0;
+            _totalBonusesTriggered = 0;
+            _totalBet = 0;
+            _totalWin = 0;
+            _hitCount = 0;
+            _lastBonusSpin = -100;
+            _rtpMomentum = 0;
+            _lastRtp = 0;
+            _isSimulationMode = false;
+        }
     }
 } 

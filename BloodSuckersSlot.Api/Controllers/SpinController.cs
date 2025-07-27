@@ -37,10 +37,15 @@ namespace BloodSuckersSlot.Api.Controllers
 
         private async Task LoadAllReelSetsAsync()
         {
-            if (_isLoading || _isLoaded) return;
+            if (_isLoading || _isLoaded) 
+            {
+                _logger.LogInformation("LoadAllReelSetsAsync skipped - already loading or loaded");
+                return;
+            }
             
             _isLoading = true;
             _loadedCount = 0;
+            _logger.LogInformation("🔄 LoadAllReelSetsAsync started - setting isLoading=true");
             var startTime = DateTime.UtcNow;
             
             try
@@ -100,22 +105,24 @@ namespace BloodSuckersSlot.Api.Controllers
                             {
                                 allReelSets.AddRange(reelSets);
                                 loadedCount += reelSets.Count;
-                                _loadedCount = loadedCount;
+                                
+                                // Ensure progress never goes backward by using the maximum value
+                                _loadedCount = Math.Max(_loadedCount, loadedCount);
                                 completedBatches++;
                                 
                                 var currentTime = DateTime.UtcNow;
                                 var elapsed = (currentTime - startTime).TotalSeconds;
-                                var progress = (double)loadedCount / _totalReelSets;
+                                var progress = (double)_loadedCount / _totalReelSets;
                                 var estimatedTotalTime = elapsed / progress;
                                 var remainingTime = estimatedTotalTime - elapsed;
                                 
                                 // Calculate rate and time metrics
                                 var timeSinceLastProgress = (currentTime - lastProgressTime).TotalSeconds;
-                                var setsPerSecond = loadedCount / elapsed;
+                                var setsPerSecond = _loadedCount / elapsed;
                                 var batchesPerSecond = completedBatches / elapsed;
                                 var avgTimePerBatch = elapsed / completedBatches;
                                 
-                                _logger.LogInformation($"Progress: {loadedCount:N0}/{_totalReelSets:N0} ({progress:P1}) - " +
+                                _logger.LogInformation($"Progress: {_loadedCount:N0}/{_totalReelSets:N0} ({progress:P1}) - " +
                                     $"Completed batches: {completedBatches}/{numBatches} - " +
                                     $"Elapsed: {elapsed:F1}s - ETA: {remainingTime:F1}s - " +
                                     $"Rate: {setsPerSecond:F0} sets/sec, {batchesPerSecond:F1} batches/sec - " +
@@ -146,7 +153,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 _isLoaded = true;
                 _isLoading = false;
                 
-                _logger.LogInformation($"Successfully loaded all {_allReelSets.Count:N0} reel sets into memory in {totalTime:F2} seconds");
+                _logger.LogInformation($"✅ SUCCESS: Loaded all {_allReelSets.Count:N0} reel sets into memory in {totalTime:F2} seconds");
+                _logger.LogInformation($"✅ FINAL STATE: IsLoaded={_isLoaded}, IsLoading={_isLoading}, LoadedCount={_loadedCount}/{_totalReelSets}");
             }
             catch (Exception ex)
             {
@@ -160,32 +168,107 @@ namespace BloodSuckersSlot.Api.Controllers
         [HttpGet("loading-status")]
         public IActionResult GetLoadingStatus()
         {
-            return Ok(new
+            // Ensure progress never goes backward by clamping values
+            var clampedLoadedCount = Math.Min(_loadedCount, _totalReelSets);
+            var progressPercentage = _totalReelSets > 0 ? (double)clampedLoadedCount / _totalReelSets : 0;
+            
+            // Ensure progress percentage is between 0 and 1
+            progressPercentage = Math.Max(0, Math.Min(1, progressPercentage));
+            
+            _logger.LogInformation($"📊 Loading status request - IsLoading: {_isLoading}, IsLoaded: {_isLoaded}, " +
+                $"Loaded: {clampedLoadedCount:N0}/{_totalReelSets:N0}, Progress: {progressPercentage:P1}");
+            
+            var response = new
             {
                 isLoading = _isLoading,
                 isLoaded = _isLoaded,
                 totalReelSets = _totalReelSets,
-                loadedCount = _loadedCount,
-                progressPercentage = _totalReelSets > 0 ? (double)_loadedCount / _totalReelSets : 0
-            });
+                loadedCount = clampedLoadedCount,
+                progressPercentage = progressPercentage
+            };
+            
+            _logger.LogInformation($"📊 Returning loading status: {System.Text.Json.JsonSerializer.Serialize(response)}");
+            
+            return Ok(response);
+        }
+
+        [HttpGet("test")]
+        public IActionResult Test()
+        {
+            _logger.LogInformation("🧪 Test endpoint called successfully");
+            return Ok(new { message = "API is working", timestamp = DateTime.UtcNow });
+        }
+
+        [HttpGet("trigger-reload")]
+        public async Task<IActionResult> TriggerReelSetReload()
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Manual reel set reload triggered from frontend...");
+                _logger.LogInformation("🔄 FORCING FRESH RELOAD - Resetting loaded state...");
+                
+                // Force fresh reload by resetting state
+                _isLoaded = false;
+                _isLoading = false;
+                _loadedCount = 0;
+                _allReelSets.Clear();
+                
+                // Reset all game statistics to start fresh
+                _logger.LogInformation("🔄 RESETTING ALL GAME STATISTICS - Starting fresh spin sequence...");
+                SpinLogicHelper.ResetAllStats();
+                
+                _logger.LogInformation("Starting LoadAllReelSetsAsync in background...");
+                // Start loading in background without awaiting
+                _ = Task.Run(async () => 
+                {
+                    try
+                    {
+                        _logger.LogInformation("🔄 Background task started - calling LoadAllReelSetsAsync...");
+                        await LoadAllReelSetsAsync();
+                        _logger.LogInformation("🔄 Background task completed - LoadAllReelSetsAsync finished");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error in background LoadAllReelSetsAsync");
+                    }
+                });
+                
+                _logger.LogInformation("✅ Reel set reload initiated - returning immediately to allow progress polling");
+                
+                return Ok(new
+                {
+                    success = true,
+                    message = "Reel set reload initiated - progress will be available via loading-status endpoint",
+                    totalReelSets = _totalReelSets,
+                    loadedCount = _loadedCount,
+                    isLoaded = _isLoaded
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during manual reel set reload");
+                return StatusCode(500, new { error = $"Reel set reload failed: {ex.Message}" });
+            }
         }
 
         [HttpPost("spin")]
         public async Task<IActionResult> Spin([FromBody] SpinRequestDto request)
         {
-            if (!_isLoaded)
-            {
-                return StatusCode(503, new { error = "Reel sets are still loading. Please wait." });
-            }
-
-            if (_allReelSets.Count == 0)
-            {
-                return StatusCode(500, new { error = "No reel sets available." });
-            }
-
             try
             {
                 _logger.LogInformation($"Starting spin with bet amount: {request.BetAmount}");
+                
+                if (!_isLoaded)
+                {
+                    return StatusCode(503, new { error = "Reel sets are still loading. Please wait." });
+                }
+
+                if (_allReelSets.Count == 0)
+                {
+                    return StatusCode(500, new { error = "No reel sets available." });
+                }
+
+                _logger.LogInformation($"✅ Using {_allReelSets.Count} loaded reel sets for spin.");
                 
                 // Use static helper for spin logic
                 var spinResultTuple = SpinLogicHelper.SpinWithReelSets(_config, request.BetAmount, _allReelSets);

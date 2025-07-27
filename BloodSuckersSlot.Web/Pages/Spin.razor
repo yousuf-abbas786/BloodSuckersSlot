@@ -468,14 +468,15 @@
     /* Progress bar enhancements */
     .progress {
         height: 1.5rem;
-        background-color: rgba(0, 0, 0, 0.1);
+        background-color: #2c3e50;
         border-radius: 0.75rem;
         overflow: hidden;
-        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        border: 1px solid #34495e;
     }
 
     .progress-bar {
-        background: linear-gradient(45deg, #007bff, #0056b3, #004085);
+        background: linear-gradient(45deg, #3498db, #2980b9, #1f618d);
         background-size: 200% 200%;
         animation: gradientShift 2s ease infinite;
         transition: width 0.3s ease-in-out;
@@ -483,11 +484,13 @@
         font-weight: bold;
         font-size: 0.875rem;
         line-height: 1.5rem;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        color: white;
+        border: 1px solid #21618c;
     }
 
     .progress-bar-striped {
-        background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
+        background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.25) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.25) 50%, rgba(255, 255, 255, 0.25) 75%, transparent 75%, transparent);
         background-size: 1rem 1rem;
     }
 
@@ -508,16 +511,18 @@
 
     /* Loading alert enhancements */
     .alert-info {
-        background: linear-gradient(135deg, #d1ecf1, #bee5eb);
-        border: 2px solid #17a2b8;
+        background: linear-gradient(135deg, #3498db, #2980b9);
+        border: 2px solid #21618c;
         border-radius: 0.75rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 8px rgba(52, 152, 219, 0.3);
+        color: white;
     }
 
     .alert-info h5 {
-        color: #0c5460;
+        color: white;
         font-weight: bold;
         margin-bottom: 1rem;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
     }
 </style>
 
@@ -584,9 +589,13 @@
     {
         if (firstRender)
         {
+            await JS.InvokeVoidAsync("console.log", "🔄 Spin page loaded - triggering reel set reload...");
+            
+            // Trigger reel set reload on page load (this will handle progress polling internally)
+            await TriggerReelSetReload();
+            
             await InitializeCharts();
             chartsInitialized = true;
-            await CheckLoadingStatus();
             
             // Force chart initialization after a delay to ensure DOM is ready
             await Task.Delay(500);
@@ -662,23 +671,34 @@
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
-                isLoadingReelSets = root.GetProperty("isLoading").GetBoolean();
-                reelSetsLoaded = root.GetProperty("isLoaded").GetBoolean();
-                totalReelSets = root.GetProperty("totalReelSets").GetInt32();
-                loadedReelSets = root.GetProperty("loadedCount").GetInt32();
-                loadingProgress = root.GetProperty("progressPercentage").GetDouble();
+                var newIsLoading = root.GetProperty("isLoading").GetBoolean();
+                var newIsLoaded = root.GetProperty("isLoaded").GetBoolean();
+                var newTotalReelSets = root.GetProperty("totalReelSets").GetInt32();
+                var newLoadedReelSets = root.GetProperty("loadedCount").GetInt32();
+                var newProgress = root.GetProperty("progressPercentage").GetDouble();
 
+                // Update state variables
+                isLoadingReelSets = newIsLoading;
+                reelSetsLoaded = newIsLoaded;
+                totalReelSets = newTotalReelSets;
+                loadedReelSets = newLoadedReelSets;
+                loadingProgress = newProgress;
+
+                await JS.InvokeVoidAsync("console.log", $"Progress update - Loading: {isLoadingReelSets}, Loaded: {reelSetsLoaded}, " +
+                    $"Progress: {loadingProgress:P1} ({loadedReelSets:N0}/{totalReelSets:N0})");
+                
                 // Force UI update to show progress
                 StateHasChanged();
 
                 if (isLoadingReelSets)
                 {
                     // Poll more frequently for smoother progress updates
-                    await Task.Delay(500); // Wait 500ms before next check for smoother updates
+                    await Task.Delay(200); // Reduced to 200ms for more responsive updates
                     await CheckLoadingStatus();
                 }
                 else if (reelSetsLoaded)
                 {
+                    await JS.InvokeVoidAsync("console.log", "✅ Loading completed - reel sets are ready!");
                     isLoadingReelSets = false;
                     StateHasChanged();
                 }
@@ -692,6 +712,79 @@
         catch (Exception ex)
         {
             await JS.InvokeVoidAsync("console.error", "Error checking loading status:", ex.Message);
+        }
+    }
+
+    private async Task TriggerReelSetReload()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("console.log", "🔄 Triggering reel set reload from frontend...");
+            
+            // First test if API is accessible
+            var testUrl = "http://37.27.71.156:5000/api/spin/test";
+            await JS.InvokeVoidAsync("console.log", $"Testing API connectivity: {testUrl}");
+            
+            var testResponse = await Http.GetAsync(testUrl);
+            await JS.InvokeVoidAsync("console.log", $"Test response status: {testResponse.StatusCode}");
+            
+            if (testResponse.IsSuccessStatusCode)
+            {
+                var testJson = await testResponse.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.log", $"✅ API test successful: {testJson}");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("console.error", "❌ API test failed - API might not be running");
+                return;
+            }
+            
+            // Add a small delay to ensure API is ready
+            await Task.Delay(1000);
+            
+            // Show loading state immediately
+            isLoadingReelSets = true;
+            loadingProgress = 0;
+            reelSetsLoaded = false;
+            await JS.InvokeVoidAsync("console.log", $"🔄 Set loading state: isLoadingReelSets={isLoadingReelSets}, loadingProgress={loadingProgress}, reelSetsLoaded={reelSetsLoaded}");
+            StateHasChanged();
+            
+            // Make a request to trigger reel set reload
+            var apiUrl = "http://37.27.71.156:5000/api/spin/trigger-reload";
+            await JS.InvokeVoidAsync("console.log", $"Making GET request to: {apiUrl}");
+            
+            var response = await Http.GetAsync(apiUrl);
+            
+            await JS.InvokeVoidAsync("console.log", $"Response status: {response.StatusCode}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.log", $"✅ Reel set reload response: {json}");
+                
+                // Start polling for progress after a short delay to ensure API has started loading
+                await JS.InvokeVoidAsync("console.log", "🔄 Starting progress polling after reload trigger...");
+                await Task.Delay(500); // Give API time to start the loading process
+                await CheckLoadingStatus();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.error", $"Failed to trigger reel set reload: {response.StatusCode} - {errorContent}");
+                
+                // Reset loading state on error
+                isLoadingReelSets = false;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Error triggering reel set reload:", ex.Message);
+            await JS.InvokeVoidAsync("console.error", "Exception details:", ex.ToString());
+            
+            // Reset loading state on error
+            isLoadingReelSets = false;
+            StateHasChanged();
         }
     }
 
