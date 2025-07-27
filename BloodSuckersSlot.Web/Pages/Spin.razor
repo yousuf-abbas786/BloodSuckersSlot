@@ -149,6 +149,7 @@
                                             <p><strong>Symbol:</strong> @line.Symbol</p>
                                             <p><strong>Count:</strong> @line.Count</p>
                                             <p><strong>Win Amount:</strong> @line.WinAmount</p>
+                                            <p><strong>Payline Type:</strong> @line.PaylineType</p>
                                             <p><strong>Positions:</strong> @string.Join(", ", line.Positions.Select(p => $"({p.Col},{p.Row})"))</p>
                                             <p><strong>SVG Path:</strong> <code>@line.Path</code></p>
                                         </div>
@@ -435,6 +436,7 @@
         public double WinAmount { get; set; }
         public string Symbol { get; set; } = "";
         public int Count { get; set; }
+        public string PaylineType { get; set; } = "";
         public List<Position> Positions { get; set; } = new();
     }
 
@@ -488,6 +490,7 @@
                 WinAmount = apiLine.WinAmount,
                 Symbol = apiLine.Symbol,
                 Count = apiLine.Count,
+                PaylineType = apiLine.PaylineType,
                 Positions = apiLine.Positions
             };
             
