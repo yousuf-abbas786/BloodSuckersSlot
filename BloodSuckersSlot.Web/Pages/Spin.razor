@@ -63,8 +63,17 @@
                     <!-- Grid Display -->
                     @if (currentGrid != null)
                     {
-                        <div class="text-center mb-4">
-                            <h5>Spin Result</h5>
+                                                     <div class="text-center mb-4">
+                                 <h5>Spin Result</h5>
+                                 @if (winningLines != null && winningLines.Count > 0)
+                                 {
+                                     <div class="payline-legend mb-2">
+                                         <small>
+                                             <span style="color: gray;">⚫</span> Full Payline Path | 
+                                             <span style="color: yellow;">⚫</span> Winning Positions
+                                         </small>
+                                     </div>
+                                 }
                             <div class="slot-grid position-relative">
                                 @for (int row = 0; row < 3; row++)
                                 {
@@ -84,19 +93,26 @@
                                     </div>
                                 }
                                 
-                                <!-- Winning Lines Overlay -->
-                                @if (winningLines != null && winningLines.Count > 0)
-                                {
-                                    <div class="winning-lines-overlay">
-                                        @foreach (var line in winningLines)
-                                        {
-                                            <svg class="winning-line" viewBox="0 0 500 180">
-                                                <path d="@line.Path" stroke="yellow" stroke-width="3" fill="none" 
-                                                      stroke-dasharray="5,5" opacity="0.8" />
-                                            </svg>
-                                        }
-                                    </div>
-                                }
+                                                                 <!-- Winning Lines Overlay -->
+                                 @if (winningLines != null && winningLines.Count > 0)
+                                 {
+                                     <div class="winning-lines-overlay">
+                                         @foreach (var line in winningLines)
+                                         {
+                                             <!-- Full payline path (dotted line) -->
+                                             <svg class="payline-path" viewBox="0 0 500 180">
+                                                 <path d="@CreateSvgPath(line.FullPaylinePath)" stroke="gray" stroke-width="2" fill="none" 
+                                                       stroke-dasharray="3,3" opacity="0.5" />
+                                             </svg>
+                                             
+                                             <!-- Winning positions path (solid line) -->
+                                             <svg class="winning-line" viewBox="0 0 500 180">
+                                                 <path d="@line.Path" stroke="yellow" stroke-width="3" fill="none" 
+                                                       stroke-dasharray="5,5" opacity="0.8" />
+                                             </svg>
+                                         }
+                                     </div>
+                                 }
                             </div>
                         </div>
 
@@ -145,14 +161,16 @@
                                     <h6>🧮 Winning Line Calculations (Testing):</h6>
                                     @foreach (var line in winningLines)
                                     {
-                                        <div class="winning-line-detail">
-                                            <p><strong>Symbol:</strong> @line.Symbol</p>
-                                            <p><strong>Count:</strong> @line.Count</p>
-                                            <p><strong>Win Amount:</strong> @line.WinAmount</p>
-                                            <p><strong>Payline Type:</strong> @line.PaylineType</p>
-                                            <p><strong>Positions:</strong> @string.Join(", ", line.Positions.Select(p => $"({p.Col},{p.Row})"))</p>
-                                            <p><strong>SVG Path:</strong> <code>@line.Path</code></p>
-                                        </div>
+                                                                                 <div class="winning-line-detail">
+                                             <p><strong>Symbol:</strong> @line.Symbol</p>
+                                             <p><strong>Count:</strong> @line.Count</p>
+                                             <p><strong>Win Amount:</strong> @line.WinAmount</p>
+                                             <p><strong>Payline Type:</strong> @line.PaylineType</p>
+                                             <p><strong>Payline Index:</strong> @(line.PaylineIndex >= 0 ? $"#{line.PaylineIndex + 1}" : "N/A")</p>
+                                             <p><strong>Winning Positions:</strong> @string.Join(", ", line.Positions.Select(p => $"({p.Col},{p.Row})"))</p>
+                                             <p><strong>Full Payline Path:</strong> @string.Join(", ", line.FullPaylinePath.Select(p => $"({p.Col},{p.Row})"))</p>
+                                             <p><strong>SVG Path:</strong> <code>@line.Path</code></p>
+                                         </div>
                                     }
                                 </div>
                             }
@@ -306,13 +324,22 @@
         z-index: 10;
     }
 
-    .winning-line {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-    }
+         .winning-line {
+         position: absolute;
+         top: 0;
+         left: 0;
+         width: 100%;
+         height: 100%;
+     }
+     
+     .payline-path {
+         position: absolute;
+         top: 0;
+         left: 0;
+         width: 100%;
+         height: 100%;
+         z-index: 5;
+     }
 
     .scatter { background: linear-gradient(45deg, #ffd700, #ffed4e); }
     .wild { background: linear-gradient(45deg, #00bfff, #87ceeb); }
@@ -377,12 +404,19 @@
         margin: 0.25rem 0;
     }
 
-    .winning-line-detail code {
-        background: rgba(0, 0, 0, 0.3);
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
-        font-size: 0.875rem;
-    }
+         .winning-line-detail code {
+         background: rgba(0, 0, 0, 0.3);
+         padding: 0.25rem 0.5rem;
+         border-radius: 0.25rem;
+         font-size: 0.875rem;
+     }
+     
+     .payline-legend {
+         background: rgba(0, 0, 0, 0.1);
+         padding: 0.5rem;
+         border-radius: 0.25rem;
+         border: 1px solid rgba(255, 255, 255, 0.2);
+     }
 </style>
 
 @code {
@@ -421,6 +455,8 @@
         public double WinAmount { get; set; }
         public string PaylineType { get; set; } = "";
         public string SvgPath { get; set; } = "";
+        public int PaylineIndex { get; set; } = -1;
+        public List<Position> FullPaylinePath { get; set; } = new();
     }
 
     public class Position
@@ -437,7 +473,9 @@
         public string Symbol { get; set; } = "";
         public int Count { get; set; }
         public string PaylineType { get; set; } = "";
+        public int PaylineIndex { get; set; } = -1;
         public List<Position> Positions { get; set; } = new();
+        public List<Position> FullPaylinePath { get; set; } = new();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -486,12 +524,14 @@
             // Create frontend winning line
             var frontendLine = new WinningLine
             {
-                Path = apiLine.SvgPath,
+                Path = CreateSvgPath(apiLine.Positions), // Winning positions path
                 WinAmount = apiLine.WinAmount,
                 Symbol = apiLine.Symbol,
                 Count = apiLine.Count,
                 PaylineType = apiLine.PaylineType,
-                Positions = apiLine.Positions
+                PaylineIndex = apiLine.PaylineIndex,
+                Positions = apiLine.Positions,
+                FullPaylinePath = apiLine.FullPaylinePath
             };
             
             winningLines.Add(frontendLine);
@@ -639,26 +679,39 @@
                         
                         await JS.InvokeVoidAsync("console.log", $"Parsed manually - Symbol: '{symbol}', Count: {count}, WinAmount: {winAmount}, SvgPath: '{svgPath}'");
                         
-                        var apiLine = new ApiWinningLine
-                        {
-                            Symbol = symbol,
-                            Count = count,
-                            WinAmount = winAmount,
-                            SvgPath = svgPath,
-                            PaylineType = line.TryGetProperty("paylineType", out var paylineTypeProp) ? paylineTypeProp.GetString() ?? "" : "",
-                            Positions = new List<Position>()
-                        };
+                                                 var apiLine = new ApiWinningLine
+                         {
+                             Symbol = symbol,
+                             Count = count,
+                             WinAmount = winAmount,
+                             SvgPath = svgPath,
+                             PaylineType = line.TryGetProperty("paylineType", out var paylineTypeProp) ? paylineTypeProp.GetString() ?? "" : "",
+                             PaylineIndex = line.TryGetProperty("paylineIndex", out var paylineIndexProp) ? paylineIndexProp.GetInt32() : -1,
+                             Positions = new List<Position>(),
+                             FullPaylinePath = new List<Position>()
+                         };
                         
-                        // Parse positions
-                        if (line.TryGetProperty("positions", out var positionsProp))
-                        {
-                            foreach (var pos in positionsProp.EnumerateArray())
-                            {
-                                var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
-                                var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
-                                apiLine.Positions.Add(new Position { Col = col, Row = row });
-                            }
-                        }
+                                                 // Parse positions
+                         if (line.TryGetProperty("positions", out var positionsProp))
+                         {
+                             foreach (var pos in positionsProp.EnumerateArray())
+                             {
+                                 var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
+                                 var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
+                                 apiLine.Positions.Add(new Position { Col = col, Row = row });
+                             }
+                         }
+                         
+                         // Parse full payline path
+                         if (line.TryGetProperty("fullPaylinePath", out var fullPaylinePathProp))
+                         {
+                             foreach (var pos in fullPaylinePathProp.EnumerateArray())
+                             {
+                                 var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
+                                 var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
+                                 apiLine.FullPaylinePath.Add(new Position { Col = col, Row = row });
+                             }
+                         }
                         
                         apiWinningLines.Add(apiLine);
                         await JS.InvokeVoidAsync("console.log", $"Added winning line: Symbol='{apiLine.Symbol}', Count={apiLine.Count}, WinAmount={apiLine.WinAmount}, Positions={apiLine.Positions.Count}, SvgPath='{apiLine.SvgPath}'");
@@ -878,6 +931,33 @@
         ");
     }
 
-    private string ToJsArray(IEnumerable<double> data) => "[" + string.Join(",", data) + "]";
-    private string ToJsArray(IEnumerable<string> data) => "[" + string.Join(",", data.Select(x => $"'" + x + "'")) + "]";
+         private string ToJsArray(IEnumerable<double> data) => "[" + string.Join(",", data) + "]";
+     private string ToJsArray(IEnumerable<string> data) => "[" + string.Join(",", data.Select(x => $"'" + x + "'")) + "]";
+     
+     private string CreateSvgPath(List<Position> positions)
+     {
+         if (positions == null || positions.Count == 0) return "";
+         
+         var path = new System.Text.StringBuilder();
+         bool first = true;
+         
+         foreach (var pos in positions)
+         {
+             // Convert grid position to SVG coordinates
+             int x = pos.Col * 100 + 50; // 100px per column, center at 50
+             int y = pos.Row * 60 + 30;  // 60px per row, center at 30
+             
+             if (first)
+             {
+                 path.Append($"M {x} {y}");
+                 first = false;
+             }
+             else
+             {
+                 path.Append($" L {x} {y}");
+             }
+         }
+         
+         return path.ToString();
+     }
 } 

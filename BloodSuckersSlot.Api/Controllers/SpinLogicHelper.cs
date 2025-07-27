@@ -245,8 +245,9 @@ namespace BloodSuckersSlot.Api.Controllers
             var counted = new HashSet<string>();
             winningLines = new List<WinningLine>();
 
-            foreach (var line in paylines)
+            for (int paylineIndex = 0; paylineIndex < paylines.Count; paylineIndex++)
             {
+                var line = paylines[paylineIndex];
                 string baseSymbol = null;
                 int matchCount = 0;
                 bool wildUsed = false;
@@ -292,6 +293,13 @@ namespace BloodSuckersSlot.Api.Controllers
                         
                         Console.WriteLine($"EvaluatePaylinesWithLines: Found winning line - Symbol: {baseSymbol}, Count: {matchCount}, Win: {payout}");
                         
+                        // Create full payline path (all 5 positions)
+                        var fullPaylinePath = new List<Position>();
+                        for (int col = 0; col < 5; col++)
+                        {
+                            fullPaylinePath.Add(new Position { Col = col, Row = line[col] });
+                        }
+                        
                         // Create winning line with proper data
                         winningLines.Add(new WinningLine
                         {
@@ -299,7 +307,9 @@ namespace BloodSuckersSlot.Api.Controllers
                             Symbol = baseSymbol,
                             Count = matchCount,
                             WinAmount = payout,
-                            PaylineType = "line"
+                            PaylineType = "line",
+                            PaylineIndex = paylineIndex,
+                            FullPaylinePath = fullPaylinePath
                         });
                     }
                 }
@@ -313,8 +323,9 @@ namespace BloodSuckersSlot.Api.Controllers
             double wildWin = 0;
             winningLines = new List<WinningLine>();
 
-            foreach (var line in paylines)
+            for (int paylineIndex = 0; paylineIndex < paylines.Count; paylineIndex++)
             {
+                var line = paylines[paylineIndex];
                 int count = 0;
                 var positions = new List<Position>();
                 
@@ -338,6 +349,13 @@ namespace BloodSuckersSlot.Api.Controllers
                     
                     Console.WriteLine($"EvaluateWildLineWinsWithLines: Found wild win - Count: {count}, Win: {payout}");
                     
+                    // Create full payline path (all 5 positions)
+                    var fullPaylinePath = new List<Position>();
+                    for (int col = 0; col < 5; col++)
+                    {
+                        fullPaylinePath.Add(new Position { Col = col, Row = line[col] });
+                    }
+                    
                     // Create winning line
                     winningLines.Add(new WinningLine
                     {
@@ -345,7 +363,9 @@ namespace BloodSuckersSlot.Api.Controllers
                         Symbol = "SYM1",
                         Count = count,
                         WinAmount = payout,
-                        PaylineType = "wild"
+                        PaylineType = "wild",
+                        PaylineIndex = paylineIndex,
+                        FullPaylinePath = fullPaylinePath
                     });
                 }
             }

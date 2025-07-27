@@ -8,6 +8,8 @@ namespace BloodSuckersSlot.Api.Models
         public double WinAmount { get; set; }
         public string PaylineType { get; set; } = ""; // "line", "wild", "scatter"
         public string SvgPath { get; set; } = "";
+        public int PaylineIndex { get; set; } = -1; // Index of the payline that produced this win
+        public List<Position> FullPaylinePath { get; set; } = new(); // Full payline path (all 5 positions)
     }
 
     public class Position
