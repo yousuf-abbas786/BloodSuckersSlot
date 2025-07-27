@@ -19,7 +19,23 @@ builder.Services
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
+// Configure HttpClient with API base URL from configuration
+builder.Services.AddScoped(sp => 
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var apiBaseUrl = configuration["ApiBaseUrl"] ?? "/api";
+    
+    // If it's a relative URL, use the host environment base address
+    if (apiBaseUrl.StartsWith("/"))
+    {
+        return new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) };
+    }
+    else
+    {
+        return new HttpClient { BaseAddress = new Uri(apiBaseUrl) };
+    }
+});
+
 builder.Services.AddScoped<BloodSuckersSlot.Web.Services.RtpSignalRService>();
 builder.Services.AddScoped<BloodSuckersSlot.Web.Services.MongoDbService>();
 

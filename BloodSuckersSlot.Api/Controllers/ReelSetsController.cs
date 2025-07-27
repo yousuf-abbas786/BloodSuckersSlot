@@ -19,7 +19,7 @@ namespace BloodSuckersSlot.Api.Controllers
     [Route("api/[controller]")]
     public class ReelSetsController : ControllerBase
     {
-        private readonly IMongoCollection<BsonDocument> _collection;
+        private readonly IMongoCollection<BsonDocument>? _collection;
         private readonly ILogger<ReelSetsController> _logger;
 
         public ReelSetsController(IConfiguration configuration, ILogger<ReelSetsController> logger)
@@ -42,7 +42,7 @@ namespace BloodSuckersSlot.Api.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to initialize MongoDB connection");
-                throw;
+                _collection = null; // Don't throw, just set to null
             }
         }
 
@@ -55,6 +55,12 @@ namespace BloodSuckersSlot.Api.Controllers
             [FromQuery] double? maxRtp = null,
             [FromQuery] string? searchTerm = null)
         {
+            if (_collection == null)
+            {
+                _logger.LogError("MongoDB collection is null - connection failed");
+                return StatusCode(500, new { error = "Database connection not available" });
+            }
+
             try
             {
                 var filter = Builders<BsonDocument>.Filter.Empty;
@@ -126,6 +132,12 @@ namespace BloodSuckersSlot.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetReelSetDetail(string id)
         {
+            if (_collection == null)
+            {
+                _logger.LogError("MongoDB collection is null - connection failed");
+                return StatusCode(500, new { error = "Database connection not available" });
+            }
+
             try
             {
                 if (!ObjectId.TryParse(id, out var objectId))
@@ -171,6 +183,12 @@ namespace BloodSuckersSlot.Api.Controllers
         [HttpGet("tags")]
         public async Task<IActionResult> GetAvailableTags()
         {
+            if (_collection == null)
+            {
+                _logger.LogError("MongoDB collection is null - connection failed");
+                return StatusCode(500, new { error = "Database connection not available" });
+            }
+
             try
             {
                 var tags = await _collection.DistinctAsync<string>("tag", Builders<BsonDocument>.Filter.Empty);
@@ -186,6 +204,12 @@ namespace BloodSuckersSlot.Api.Controllers
         [HttpGet("stats")]
         public async Task<IActionResult> GetStats()
         {
+            if (_collection == null)
+            {
+                _logger.LogError("MongoDB collection is null - connection failed");
+                return StatusCode(500, new { error = "Database connection not available" });
+            }
+
             try
             {
                 _logger.LogInformation("Starting GetStats");

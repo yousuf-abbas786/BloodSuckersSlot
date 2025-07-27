@@ -41,10 +41,6 @@ namespace BloodSuckersSlot.Web.Services
         {
             _httpClient = httpClient;
             _configuration = configuration;
-            
-            // Set the base address to the API
-            var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "http://37.27.71.156:5000";
-            _httpClient.BaseAddress = new Uri(apiBaseUrl);
         }
 
         public async Task<PaginatedResult<ReelSetListItem>> GetReelSetsAsync(
@@ -73,7 +69,8 @@ namespace BloodSuckersSlot.Web.Services
                 if (!string.IsNullOrEmpty(searchTerm))
                     queryParams.Add($"searchTerm={Uri.EscapeDataString(searchTerm)}");
 
-                var url = $"/api/reelsets?{string.Join("&", queryParams)}";
+                var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
+                var url = $"{apiBaseUrl}/api/reelsets?{string.Join("&", queryParams)}";
                 var response = await _httpClient.GetAsync(url);
                 
                 if (response.IsSuccessStatusCode)
@@ -102,7 +99,8 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync($"/api/reelsets/{id}");
+                var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
+                var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/reelsets/{id}");
                 
                 if (response.IsSuccessStatusCode)
                 {
@@ -130,7 +128,8 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync("/api/reelsets/tags");
+                var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
+                var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/reelsets/tags");
                 
                 if (response.IsSuccessStatusCode)
                 {
@@ -158,7 +157,8 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync("/api/reelsets/stats");
+                var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
+                var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/reelsets/stats");
                 
                 if (response.IsSuccessStatusCode)
                 {
