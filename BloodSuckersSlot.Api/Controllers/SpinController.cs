@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using MongoDB.Driver;
 using MongoDB.Bson;
 using Shared;
@@ -12,7 +13,7 @@ namespace BloodSuckersSlot.Api.Controllers
     {
         private readonly IMongoCollection<BsonDocument> _collection;
         private readonly ILogger<SpinController> _logger;
-        private static GameConfig _config = GameConfig.CreateBalanced(); // TODO: make configurable
+        private static GameConfig _config;
         private static List<ReelSet> _allReelSets = new List<ReelSet>();
         private static bool _isLoading = false;
         private static bool _isLoaded = false;
@@ -27,6 +28,10 @@ namespace BloodSuckersSlot.Api.Controllers
             var client = new MongoClient(connectionString);
             var db = client.GetDatabase(dbName);
             _collection = db.GetCollection<BsonDocument>("reelsets");
+            
+            // Load GameConfig from appsettings
+            _config = GameConfigLoader.LoadFromConfiguration(configuration);
+            _logger.LogInformation($"Loaded GameConfig from appsettings - RTP Target: {_config.RtpTarget:P1}, Hit Rate Target: {_config.TargetHitRate:P1}");
             
             // Start loading reel sets if not already loaded
             if (!_isLoaded && !_isLoading)

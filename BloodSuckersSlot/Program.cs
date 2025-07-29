@@ -1,11 +1,12 @@
 using BloodSuckersSlot;
+using Shared;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
-// Use the new configuration system
-var config = ConfigUtility.CreateConfiguration("balanced"); // Default to balanced preset
+// Load GameConfig from appsettings
+var config = GameConfigLoader.LoadFromConfiguration(builder.Configuration);
 config.PrintConfiguration();
 
 // Validate configuration

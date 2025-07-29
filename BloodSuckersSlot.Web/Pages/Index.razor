@@ -1,10 +1,11 @@
 ﻿@page "/"
-@using BloodSuckersSlot.Web.Models
 @using BloodSuckersSlot.Web.Services
-@inject RtpSignalRService RtpSignalRService
+@using BloodSuckersSlot.Web.Models
+@inject RtpSignalRService RtpService
+@inject IConfiguration Configuration
 @inject IJSRuntime JS
 
-<PageTitle>Real-Time RTP & Hit Rate Dashboard</PageTitle>
+<PageTitle>BloodSuckersSlot - Dashboard</PageTitle>
 
 <h3>Real-Time RTP & Hit Rate Dashboard</h3>
 
@@ -14,13 +15,19 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
         <div style="background: white; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef;">
             <strong style="color: #007bff;">Current RTP:</strong><br/>
-            <span style="font-size: 18px; font-weight: bold; color: @(currentRtp >= 0.88 ? "#28a745" : "#dc3545");">
+            @{
+                var rtpTarget = Configuration.GetValue<double>("RtpTarget", 0.88);
+            }
+            <span style="font-size: 18px; font-weight: bold; color: @(currentRtp >= rtpTarget ? "#28a745" : "#dc3545");">
                 @(currentRtp.ToString("P2"))
             </span>
         </div>
         <div style="background: white; padding: 10px; border-radius: 5px; border: 1px solid #e9ecef;">
             <strong style="color: #28a745;">Current Hit Rate:</strong><br/>
-            <span style="font-size: 18px; font-weight: bold; color: @(currentHitRate >= 0.35 ? "#28a745" : "#dc3545");">
+            @{
+                var hitRateTarget = Configuration.GetValue<double>("TargetHitRate", 0.35);
+            }
+            <span style="font-size: 18px; font-weight: bold; color: @(currentHitRate >= hitRateTarget ? "#28a745" : "#dc3545");">
                 @(currentHitRate.ToString("P2"))
             </span>
         </div>
@@ -89,10 +96,10 @@
 @code {
     private List<string> rtpLabels = new() { "A", "B", "C", "D", "E" };
     private List<double> rtpData = new() { 0.5, 0.7, 0.6, 0.8, 0.9 };
-    private List<double> rtpTargetData = new() { 0.85, 0.85, 0.85, 0.85, 0.85 };
+    private List<double> rtpTargetData;
     private List<string> hitRateLabels = new() { "A", "B", "C", "D", "E" };
     private List<double> hitRateData = new() { 0.4, 0.5, 0.6, 0.55, 0.65 };
-    private List<double> hitRateTargetData = new() { 0.6, 0.6, 0.6, 0.6, 0.6 };
+    private List<double> hitRateTargetData;
     private int spinCount = 5;
     private bool chartsInitialized = false;
 
@@ -112,8 +119,14 @@
 
     protected override async Task OnInitializedAsync()
     {
-        RtpSignalRService.OnRtpUpdate += OnRtpUpdateReceived;
-        await RtpSignalRService.StartAsync();
+        // Initialize target data from configuration
+        var rtpTarget = Configuration.GetValue<double>("RtpTarget", 0.88);
+        var hitRateTarget = Configuration.GetValue<double>("TargetHitRate", 0.35);
+        rtpTargetData = new() { rtpTarget, rtpTarget, rtpTarget, rtpTarget, rtpTarget };
+        hitRateTargetData = new() { hitRateTarget, hitRateTarget, hitRateTarget, hitRateTarget, hitRateTarget };
+        
+        RtpService.OnRtpUpdate += OnRtpUpdateReceived;
+        await RtpService.StartAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -281,6 +294,6 @@
 
     public void Dispose()
     {
-        RtpSignalRService.OnRtpUpdate -= OnRtpUpdateReceived;
+        RtpService.OnRtpUpdate -= OnRtpUpdateReceived;
     }
 }

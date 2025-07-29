@@ -5,6 +5,7 @@
 @using System.Text.Json
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject IConfiguration Configuration
 
 <PageTitle>Spin Page</PageTitle>
 
@@ -230,7 +231,10 @@
                     <h5>Current Stats</h5>
                 </div>
                 <div class="card-body">
-                    <p><strong>Current RTP:</strong> <span class="@(currentRtp >= 0.88 ? "text-success" : "text-danger")">@(currentRtp.ToString("P2"))</span></p>
+                    @{
+                        var rtpTarget = Configuration.GetValue<double>("RtpTarget", 0.88);
+                    }
+                    <p><strong>Current RTP:</strong> <span class="@(currentRtp >= rtpTarget ? "text-success" : "text-danger")">@(currentRtp.ToString("P2"))</span></p>
                     <p><strong>Current Hit Rate:</strong> <span class="@(currentHitRate >= 0.35 ? "text-success" : "text-danger")">@(currentHitRate.ToString("P2"))</span></p>
                     <p><strong>Total Spins:</strong> @totalSpins</p>
                 </div>
@@ -803,7 +807,8 @@
             var apiUrl = "http://37.27.71.156:5000/api/spin/spin";
             await JS.InvokeVoidAsync("console.log", $"Calling API: {apiUrl}");
             
-            var response = await Http.PostAsJsonAsync(apiUrl, new { BetAmount = 25 });
+            var betAmount = Configuration.GetValue<int>("DefaultBetAmount", 25);
+            var response = await Http.PostAsJsonAsync(apiUrl, new { BetAmount = betAmount });
             
             await JS.InvokeVoidAsync("console.log", $"API Response Status: {response.StatusCode}");
             
@@ -973,13 +978,17 @@
 
     private async Task InitializeCharts()
     {
+        // Get configuration values
+        var rtpTarget = Configuration.GetValue<double>("RtpTarget", 0.88);
+        var hitRateTarget = Configuration.GetValue<double>("TargetHitRate", 0.35);
+        
         // Initialize with some sample data
         rtpLabels = new List<string> { "Start" };
-        rtpData = new List<double> { 0.88 };
-        rtpTargetData = new List<double> { 0.88 };
+        rtpData = new List<double> { rtpTarget };
+        rtpTargetData = new List<double> { rtpTarget };
         hitRateLabels = new List<string> { "Start" };
-        hitRateData = new List<double> { 0.35 };
-        hitRateTargetData = new List<double> { 0.35 };
+        hitRateData = new List<double> { hitRateTarget };
+        hitRateTargetData = new List<double> { hitRateTarget };
 
         await RenderCharts();
         
@@ -1103,13 +1112,17 @@
     {
         if (!chartsInitialized) return;
 
+        // Get configuration values
+        var rtpTarget = Configuration.GetValue<double>("RtpTarget", 0.88);
+        var hitRateTarget = Configuration.GetValue<double>("TargetHitRate", 0.35);
+
         // Add new data points
         rtpLabels.Add($"Spin {totalSpins}");
         hitRateLabels.Add($"Spin {totalSpins}");
         rtpData.Add(currentRtp);
-        rtpTargetData.Add(0.88); // Target RTP
+        rtpTargetData.Add(rtpTarget); // Target RTP from configuration
         hitRateData.Add(currentHitRate);
-        hitRateTargetData.Add(0.35); // Target Hit Rate
+        hitRateTargetData.Add(hitRateTarget); // Target Hit Rate from configuration
 
         // Update RTP Chart
         await JS.InvokeVoidAsync("eval", $@"

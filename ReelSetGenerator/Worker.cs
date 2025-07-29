@@ -37,51 +37,10 @@ namespace ReelSetGenerator
                 new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("estimatedHitRate"))
             };
             _collection.Indexes.CreateMany(indexKeys);
-            _config = GameConfig.CreateBalanced(); // Or load from config
-            // Example paylines (replace with your actual paylines)
-            _config.Paylines = new List<int[]>
-            {
-                new[] { 1, 1, 1, 1, 1 },
-                new[] { 0, 0, 0, 0, 0 },
-                new[] { 2, 2, 2, 2, 2 },
-                new[] { 0, 1, 2, 1, 0 },
-                new[] { 2, 1, 0, 1, 2 },
-                new[] { 0, 0, 1, 2, 2 },
-                new[] { 2, 2, 1, 0, 0 },
-                new[] { 0, 1, 1, 1, 0 },
-                new[] { 2, 1, 1, 1, 2 },
-                new[] { 1, 0, 1, 2, 1 },
-                new[] { 1, 2, 1, 0, 1 },
-                new[] { 0, 1, 0, 1, 0 },
-                new[] { 2, 1, 2, 1, 2 },
-                new[] { 1, 1, 0, 1, 1 },
-                new[] { 1, 1, 2, 1, 1 },
-                new[] { 0, 1, 2, 2, 2 },
-                new[] { 2, 1, 0, 0, 0 },
-                new[] { 1, 2, 2, 2, 1 },
-                new[] { 1, 0, 0, 0, 1 },
-                new[] { 0, 0, 1, 1, 2 },
-                new[] { 2, 2, 1, 1, 0 },
-                new[] { 0, 1, 2, 1, 2 },
-                new[] { 2, 1, 0, 1, 0 },
-                new[] { 1, 0, 1, 2, 0 },
-                new[] { 1, 2, 1, 0, 2 }
-            };
-            // Example symbol config (replace with your actual symbols)
-            _config.Symbols = new Dictionary<string, SymbolConfig>
-            {
-                ["SYM0"] = new SymbolConfig { SymbolId = "SYM0", IsScatter = true, Payouts = new Dictionary<int, double> { [2] = 2, [3] = 4, [4] = 25, [5] = 100 } },
-                ["SYM1"] = new SymbolConfig { SymbolId = "SYM1", IsWild = true, Payouts = new Dictionary<int, double> { [2] = 0.5, [3] = 20, [4] = 200, [5] = 750 } },
-                ["SYM2"] = new SymbolConfig { SymbolId = "SYM2", IsBonus = true },
-                ["SYM3"] = new SymbolConfig { SymbolId = "SYM3", Payouts = new Dictionary<int, double> { [3] = 5, [4] = 10, [5] = 50 } },
-                ["SYM4"] = new SymbolConfig { SymbolId = "SYM4", Payouts = new Dictionary<int, double> { [3] = 5, [4] = 10, [5] = 50 } },
-                ["SYM5"] = new SymbolConfig { SymbolId = "SYM5", Payouts = new Dictionary<int, double> { [3] = 1.5, [4] = 7.5, [5] = 25 } },
-                ["SYM6"] = new SymbolConfig { SymbolId = "SYM6", Payouts = new Dictionary<int, double> { [3] = 1.5, [4] = 7.5, [5] = 25 } },
-                ["SYM7"] = new SymbolConfig { SymbolId = "SYM7", Payouts = new Dictionary<int, double> { [3] = 0.5, [4] = 5, [5] = 10 } },
-                ["SYM8"] = new SymbolConfig { SymbolId = "SYM8", Payouts = new Dictionary<int, double> { [3] = 0.5, [4] = 2.5, [5] = 10 } },
-                ["SYM9"] = new SymbolConfig { SymbolId = "SYM9", Payouts = new Dictionary<int, double> { [3] = 0.2, [4] = 1.5, [5] = 7.5 } },
-                ["SYM10"] = new SymbolConfig { SymbolId = "SYM10", Payouts = new Dictionary<int, double> { [3] = 0.2, [4] = 1.5, [5] = 7.5 } }
-            };
+            
+            // Load GameConfig from appsettings
+            _config = GameConfigLoader.LoadFromConfiguration(_configuration);
+            _logger.LogInformation($"Loaded GameConfig from appsettings - RTP Target: {_config.RtpTarget:P1}, Hit Rate Target: {_config.TargetHitRate:P1}");
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -89,7 +48,7 @@ namespace ReelSetGenerator
             int batchSize = 1000;
             int total = 100000;
             int written = 0;
-            int betAmount = 25;
+            int betAmount = _config.BaseBetForFreeSpins; // Use configuration instead of hardcoded value
             int processed = 0;
             int highRtpCount = 0, midRtpCount = 0, lowRtpCount = 0;
             var startTime = DateTime.UtcNow;
