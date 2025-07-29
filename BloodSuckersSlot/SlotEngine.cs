@@ -19,7 +19,6 @@ namespace BloodSuckersSlot
         private int _lastBonusSpin = -100;
         private bool _isSimulationMode = false;
         private int _hitCount = 0;
-        private const int MaxFreeSpinsPerSession = 50;
         private int _lastRecoverySpin = -999;
 
         // Performance tracking
@@ -1040,15 +1039,10 @@ namespace BloodSuckersSlot
 
             if (!_isSimulationMode && freeSpinsAwarded > 0 && !isFreeSpin)
             {
-                int remainingAllowance = MaxFreeSpinsPerSession - _freeSpinsAwarded;
-                int toAward = Math.Min(remainingAllowance, freeSpinsAwarded);
-                if (toAward > 0)
-                {
-                    _freeSpinsRemaining += toAward;
-                    _freeSpinsAwarded += toAward;
-                    _totalFreeSpinsAwarded += toAward; // Track total free spins awarded
-                    scatterLog = $"Free Spins Triggered! SYM0 x{scatterCount} => +{toAward} Free Spins";
-                }
+                _freeSpinsRemaining += freeSpinsAwarded;
+                _freeSpinsAwarded += freeSpinsAwarded;
+                _totalFreeSpinsAwarded += freeSpinsAwarded; // Track total free spins awarded
+                scatterLog = $"Free Spins Triggered! SYM0 x{scatterCount} => +{freeSpinsAwarded} Free Spins";
             }
 
 

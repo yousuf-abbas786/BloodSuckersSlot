@@ -15,10 +15,9 @@ namespace BloodSuckersSlot.Api.Controllers
         private static int _spinsAboveTarget = 0;
         private static int _spinsBelowTarget = 0;
         private static int _freeSpinsRemaining = 0;
-        private static int _freeSpinsAwarded = 0; // FIXED: Add missing free spin tracking
-        private static int _totalFreeSpinsAwarded = 0; // FIXED: Track total free spins awarded
-        private static int _totalBonusesTriggered = 0; // FIXED: Track total bonuses triggered
-        private const int MaxFreeSpinsPerSession = 50; // FIXED: Add free spin session limit
+        private static int _freeSpinsAwarded = 0; // Track free spins awarded in current session
+        private static int _totalFreeSpinsAwarded = 0; // Track total free spins awarded
+        private static int _totalBonusesTriggered = 0; // Track total bonuses triggered
         private static double _totalBet = 0;
         private static double _totalWin = 0;
         private static int _hitCount = 0;
@@ -205,8 +204,16 @@ namespace BloodSuckersSlot.Api.Controllers
             for (int col = 0; col < 5; col++)
             {
                 result[col] = new string[3];
+                
+                // Pick a random start position (like real slot reels)
+                int startPos = _rng.Next(reels[col].Count);
+                
+                // Take the next 3 symbols from that position (wrapping if needed)
                 for (int row = 0; row < 3; row++)
-                    result[col][row] = reels[col][_rng.Next(reels[col].Count)];
+                {
+                    int pos = (startPos + row) % reels[col].Count;
+                    result[col][row] = reels[col][pos];
+                }
             }
             return result;
         }
@@ -356,6 +363,14 @@ namespace BloodSuckersSlot.Api.Controllers
             scatterCount = grid.SelectMany(col => col)
                 .Count(symbol => symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsScatter);
 
+            // DEBUG: Add detailed scatter detection logging
+            Console.WriteLine($"DEBUG: Scatter detection - Grid symbols: [{string.Join(", ", grid.SelectMany(col => col))}]");
+            Console.WriteLine($"DEBUG: Scatter count: {scatterCount}");
+            Console.WriteLine($"DEBUG: IsFreeSpin: {isFreeSpin}");
+            Console.WriteLine($"DEBUG: FreeSpinsRemaining: {_freeSpinsRemaining}");
+            Console.WriteLine($"DEBUG: FreeSpinsAwarded: {_freeSpinsAwarded}");
+            Console.WriteLine($"DEBUG: TotalFreeSpinsAwarded: {_totalFreeSpinsAwarded}");
+
             if (scatterCount >= 2) // FIXED: Changed from >= 3 to >= 2 to match original logic
             {
                 var scatterPositions = new List<Position>();
@@ -403,15 +418,14 @@ namespace BloodSuckersSlot.Api.Controllers
                 // FIXED: Add free spin handling like original SlotEngine
                 if (freeSpinsAwarded > 0 && !isFreeSpin)
                 {
-                    int remainingAllowance = MaxFreeSpinsPerSession - _freeSpinsAwarded;
-                    int toAward = Math.Min(remainingAllowance, freeSpinsAwarded);
-                    if (toAward > 0)
-                    {
-                        _freeSpinsRemaining += toAward;
-                        _freeSpinsAwarded += toAward;
-                        _totalFreeSpinsAwarded += toAward; // Track total free spins awarded
-                        Console.WriteLine($"Free Spins Triggered! SYM0 x{scatterCount} => +{toAward} Free Spins");
-                    }
+                    _freeSpinsRemaining += freeSpinsAwarded; // Award free spins directly
+                    _freeSpinsAwarded += freeSpinsAwarded; // Track free spins awarded in current session
+                    _totalFreeSpinsAwarded += freeSpinsAwarded; // Track total free spins awarded
+                    Console.WriteLine($"Free Spins Triggered! SYM0 x{scatterCount} => +{freeSpinsAwarded} Free Spins");
+                }
+                else if (freeSpinsAwarded > 0 && isFreeSpin)
+                {
+                    Console.WriteLine($"DEBUG: Free spins not awarded during free spin (this is correct behavior)");
                 }
                 
                 // Create winning line for scatters
@@ -595,6 +609,7 @@ namespace BloodSuckersSlot.Api.Controllers
             _rtpMomentum = 0;
             _lastRtp = 0;
             _isSimulationMode = false;
+            Console.WriteLine("All stats reset successfully");
         }
     }
 } 

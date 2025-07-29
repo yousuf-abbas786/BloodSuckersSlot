@@ -7,7 +7,7 @@ namespace Shared
     {
         // Core RTP and Hit Rate Targets
         public double RtpTarget { get; set; } = 0.88; // Default target RTP (88%)
-        public double TargetHitRate { get; set; } = 0.35; // Target hit rate (35%) - adjustable
+        public double TargetHitRate { get; set; } = 0.45; // Target hit rate (35%) - adjustable
         // RTP Control Parameters
         public double RtpTolerance { get; set; } = 0.05; // ±5% tolerance around target
         public double MaxRtpPerSet { get; set; } = 1.3; // Maximum RTP allowed per reel set
@@ -30,7 +30,6 @@ namespace Shared
         public int MaxWildsPerReelSet { get; set; } = 7; // Maximum wilds allowed per reel set
         // Free Spins Configuration
         public int BaseBetForFreeSpins { get; set; } = 25; // Used when free spins don't cost a bet
-        public int MaxFreeSpinsPerSession { get; set; } = 50; // Maximum free spins per session
         // Paylines
         public List<int[]> Paylines { get; set; } = new(); // List of 5-column payline patterns
         // Symbol Configuration
