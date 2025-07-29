@@ -486,7 +486,7 @@ namespace BloodSuckersSlot
                     symbolWeights["SYM7"] = 4;
                     symbolWeights["SYM1"] = 0;
                     symbolWeights["SYM0"] = 1;
-                    symbolWeights["SYM2"] = 1;
+                    symbolWeights["SYM2"] = 8; // Increased from 1 to 8 for more bonus triggers
                     symbolWeights["SYM8"] = 35;
                     symbolWeights["SYM9"] = 35;
                     symbolWeights["SYM10"] = 35;
@@ -500,6 +500,7 @@ namespace BloodSuckersSlot
                     symbolWeights["SYM6"] = 12;
                     symbolWeights["SYM1"] = 2;
                     symbolWeights["SYM0"] = 2;
+                    symbolWeights["SYM2"] = 12; // Increased from default 4 to 12 for more bonus triggers
                     symbolWeights["SYM8"] = 18;
                     symbolWeights["SYM9"] = 18;
                     symbolWeights["SYM10"] = 18;
@@ -513,7 +514,7 @@ namespace BloodSuckersSlot
                     symbolWeights["SYM5"] = 70;
                     symbolWeights["SYM6"] = 60;
                     symbolWeights["SYM0"] = 30; // MASSIVELY increase scatter weight
-                    symbolWeights["SYM2"] = 25; // MASSIVELY increase bonus weight
+                    symbolWeights["SYM2"] = 35; // Increased from 25 to 35 for more bonus triggers
                     symbolWeights["SYM1"] = 15; // Increase wilds as well
                 }
 
@@ -1136,7 +1137,7 @@ namespace BloodSuckersSlot
 
                     if (count >= 3)
                     {
-                        if (_isSimulationMode || spinCounter - _lastBonusSpin >= 50) // Reduced from 250 to 50 spins
+                        if (_isSimulationMode || spinCounter - _lastBonusSpin >= 20) // Reduced from 50 to 20 spins
                         {
                             if (!_isSimulationMode)
                             {

@@ -502,7 +502,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 if (count >= 3) // Need 3 or more bonus symbols to trigger
                 {
                     // Check cooldown period to prevent too frequent bonus triggers
-                    if (_isSimulationMode || spinCounter - _lastBonusSpin >= 50) // 50 spin cooldown
+                    if (_isSimulationMode || spinCounter - _lastBonusSpin >= 20) // Reduced from 50 to 20 spins
                     {
                         if (!_isSimulationMode)
                         {
