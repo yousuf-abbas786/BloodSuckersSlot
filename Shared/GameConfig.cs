@@ -30,6 +30,14 @@ namespace Shared
         public int MaxWildsPerReelSet { get; set; } = 7; // Maximum wilds allowed per reel set
         // Free Spins Configuration
         public int BaseBetForFreeSpins { get; set; } = 25; // Used when free spins don't cost a bet
+        public int MaxFreeSpinsPerSession { get; set; } = 50;
+        // Betting System Configuration
+        public int BaseBetPerLevel { get; set; } = 25;
+        public int DefaultLevel { get; set; } = 1;
+        public int MaxLevel { get; set; } = 4;
+        public decimal DefaultCoinValue { get; set; } = 0.10m;
+        public decimal MinCoinValue { get; set; } = 0.01m;
+        public decimal MaxCoinValue { get; set; } = 0.50m;
         // Paylines
         public List<int[]> Paylines { get; set; } = new(); // List of 5-column payline patterns
         // Symbol Configuration

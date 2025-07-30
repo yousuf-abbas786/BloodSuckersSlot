@@ -110,10 +110,22 @@ namespace BloodSuckersSlot.Api.Controllers
             var grid = SpinReels(chosenSet.Reels);
             var winningLines = new List<WinningLine>();
 
+            // Debug: Show the grid layout
+            Console.WriteLine("DEBUG: Grid layout:");
+            for (int row = 0; row < 3; row++)
+            {
+                var rowStr = "";
+                for (int col = 0; col < 5; col++)
+                {
+                    rowStr += $"{grid[col][row],-6} ";
+                }
+                Console.WriteLine($"DEBUG: Row {row}: {rowStr}");
+            }
+
             // Evaluate wins and collect winning lines - FIXED: Use proper symbol configs
-            var lineWin = EvaluatePaylinesWithLines(grid, config.Paylines, config.Symbols, out var lineWinningLines);
-            var wildWin = EvaluateWildLineWinsWithLines(grid, config.Paylines, config.Symbols, out var wildWinningLines);
-            var scatterWin = EvaluateScattersWithLines(grid, config.Symbols, isFreeSpin, out var scatterWinningLines, out var scatterCount, betAmount);
+                            var lineWin = EvaluatePaylinesWithLines(grid, config.Paylines, config.Symbols, out var lineWinningLines);
+                var wildWin = EvaluateWildLineWinsWithLines(grid, config.Paylines, config.Symbols, out var wildWinningLines);
+                var scatterWin = EvaluateScattersWithLines(grid, config.Symbols, isFreeSpin, out var scatterWinningLines, out var scatterCount, betAmount);
 
             // FIXED: Apply free spin multiplier like original SlotEngine
             var totalWin = (lineWin * (isFreeSpin ? 3 : 1)) + wildWin + scatterWin;
@@ -237,45 +249,77 @@ namespace BloodSuckersSlot.Api.Controllers
                 bool wildUsed = false;
                 var tempPositions = new List<Position>();
 
+                Console.WriteLine($"DEBUG: Evaluating payline {paylineIndex}: [{string.Join(",", line)}]");
+
                 for (int col = 0; col < 5; col++)
                 {
                     string symbol = grid[col][line[col]];
-                    bool isWild = symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsWild;
+                    
+                    Console.WriteLine($"DEBUG: Col {col}, Row {line[col]}, Symbol: {symbol}");
+                    
+                    // Skip if symbol is not in configuration
+                    if (!symbolConfigs.ContainsKey(symbol))
+                    {
+                        Console.WriteLine($"DEBUG: Symbol {symbol} not found in configuration, breaking payline");
+                        break;
+                    }
+                        
+                    bool isWild = symbolConfigs[symbol].IsWild;
+                    bool isScatter = symbolConfigs[symbol].IsScatter;
+                    bool isBonus = symbolConfigs[symbol].IsBonus;
+
+                    Console.WriteLine($"DEBUG: Symbol {symbol} - IsWild: {isWild}, IsScatter: {isScatter}, IsBonus: {isBonus}");
 
                     if (col == 0)
                     {
-                        if (isWild || (symbolConfigs.ContainsKey(symbol) && (symbolConfigs[symbol].IsScatter || symbolConfigs[symbol].IsBonus)))
+                        if (isWild || isScatter || isBonus)
+                        {
+                            Console.WriteLine($"DEBUG: First symbol {symbol} is wild/scatter/bonus, breaking payline");
                             break;
+                        }
 
                         baseSymbol = symbol;
                         matchCount = 1;
                         tempPositions.Add(new Position { Col = col, Row = line[col] });
+                        Console.WriteLine($"DEBUG: Set baseSymbol to {baseSymbol}, matchCount = 1");
                     }
                     else
                     {
-                        if (symbol == baseSymbol || (isWild && symbolConfigs.ContainsKey(baseSymbol) && !symbolConfigs[baseSymbol].IsScatter && !symbolConfigs[baseSymbol].IsBonus))
+                        if (symbol == baseSymbol || (isWild && !symbolConfigs[baseSymbol].IsScatter && !symbolConfigs[baseSymbol].IsBonus))
                         {
                             if (isWild) wildUsed = true;
                             matchCount++;
                             tempPositions.Add(new Position { Col = col, Row = line[col] });
+                            Console.WriteLine($"DEBUG: Match found! Symbol {symbol} matches {baseSymbol}, matchCount = {matchCount}");
                         }
-                        else break;
+                        else 
+                        {
+                            Console.WriteLine($"DEBUG: No match. Symbol {symbol} != {baseSymbol}, breaking payline");
+                            break;
+                        }
                     }
                 }
 
-                if (matchCount >= 3 && symbolConfigs.ContainsKey(baseSymbol) && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double payout))
+                Console.WriteLine($"DEBUG: Payline {paylineIndex} evaluation complete - matchCount: {matchCount}, baseSymbol: {baseSymbol}");
+
+                if (matchCount >= 3 && symbolConfigs.ContainsKey(baseSymbol) && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double basePayout))
                 {
                     string key = $"{baseSymbol}-{matchCount}-{string.Join(",", line)}";
 
                     if (counted.Any(k => k.StartsWith($"{baseSymbol}-")))
+                    {
+                        Console.WriteLine($"DEBUG: Symbol {baseSymbol} already won on another line, skipping");
                         continue;
+                    }
 
                     if (!counted.Contains(key))
                     {
+                        // Symbol payouts are static (don't scale with level)
+                        double payout = basePayout;
                         win += payout;
                         counted.Add(key);
                         
-                        Console.WriteLine($"EvaluatePaylinesWithLines: Found winning line - Symbol: {baseSymbol}, Count: {matchCount}, Win: {payout}");
+                        Console.WriteLine($"EvaluatePaylinesWithLines: Found winning line - Symbol: {baseSymbol}, Count: {matchCount}, Win: {payout} coins");
                         
                         // Create full payline path (all 5 positions)
                         var fullPaylinePath = new List<Position>();
@@ -295,6 +339,14 @@ namespace BloodSuckersSlot.Api.Controllers
                             PaylineIndex = paylineIndex,
                             FullPaylinePath = fullPaylinePath
                         });
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"DEBUG: No win on payline {paylineIndex} - matchCount: {matchCount}, baseSymbol: {baseSymbol}");
+                    if (baseSymbol != null && symbolConfigs.ContainsKey(baseSymbol))
+                    {
+                        Console.WriteLine($"DEBUG: Symbol {baseSymbol} payouts: {string.Join(", ", symbolConfigs[baseSymbol].Payouts.Select(kvp => $"{kvp.Key}:{kvp.Value}"))}");
                     }
                 }
             }
@@ -327,11 +379,13 @@ namespace BloodSuckersSlot.Api.Controllers
                         break;
                 }
 
-                if (count >= 2 && symbolConfigs.ContainsKey("SYM1") && symbolConfigs["SYM1"].Payouts.TryGetValue(count, out double payout))
+                if (count >= 2 && symbolConfigs.ContainsKey("SYM1") && symbolConfigs["SYM1"].Payouts.TryGetValue(count, out double basePayout))
                 {
+                    // Symbol payouts are static (don't scale with level)
+                    double payout = basePayout;
                     wildWin += payout;
                     
-                    Console.WriteLine($"EvaluateWildLineWinsWithLines: Found wild win - Count: {count}, Win: {payout}");
+                    Console.WriteLine($"EvaluateWildLineWinsWithLines: Found wild win - Count: {count}, Win: {payout} coins");
                     
                     // Create full payline path (all 5 positions)
                     var fullPaylinePath = new List<Position>();

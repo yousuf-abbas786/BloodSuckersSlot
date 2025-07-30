@@ -7,10 +7,12 @@ namespace BloodSuckersSlot
     {
         private readonly ILogger<Worker> _logger;
         private readonly SlotEngine _engine;
+        private readonly GameConfig _config;
 
         public Worker(ILogger<Worker> logger, GameConfig config)
         {
             _logger = logger;
+            _config = config;
             _engine = new SlotEngine(config);
         }
 
@@ -20,7 +22,8 @@ namespace BloodSuckersSlot
 
             while (!stoppingToken.IsCancellationRequested && spinCount < 1000)
             {
-                _engine.Spin(25);
+                int betInCoins = BettingSystem.CalculateBetInCoins(_config.BaseBetPerLevel, _config.DefaultLevel);
+                _engine.Spin(betInCoins, _config.DefaultLevel, _config.DefaultCoinValue);
                 spinCount++;
 
                 //await Task.Delay(500, stoppingToken);

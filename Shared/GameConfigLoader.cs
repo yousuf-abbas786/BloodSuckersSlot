@@ -14,6 +14,15 @@ namespace Shared
             config.TargetHitRate = configuration.GetValue<double>("GameConfig:TargetHitRate", 0.45);
             config.BaseBetForFreeSpins = configuration.GetValue<int>("GameConfig:BaseBetForFreeSpins", 25);
             
+            // Load betting system properties
+            configuration.Bind("GameConfig:MaxFreeSpinsPerSession", config.MaxFreeSpinsPerSession);
+            configuration.Bind("GameConfig:BaseBetPerLevel", config.BaseBetPerLevel);
+            configuration.Bind("GameConfig:DefaultLevel", config.DefaultLevel);
+            configuration.Bind("GameConfig:MaxLevel", config.MaxLevel);
+            configuration.Bind("GameConfig:DefaultCoinValue", config.DefaultCoinValue);
+            configuration.Bind("GameConfig:MinCoinValue", config.MinCoinValue);
+            configuration.Bind("GameConfig:MaxCoinValue", config.MaxCoinValue);
+            
             // Load paylines
             var paylinesSection = configuration.GetSection("GameConfig:Paylines");
             if (paylinesSection.Exists())

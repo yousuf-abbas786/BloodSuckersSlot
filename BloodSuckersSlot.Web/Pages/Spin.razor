@@ -37,6 +37,62 @@
                         </div>
                     }
 
+                    <!-- Bet Controls -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="coinValue">Coin Value: $@coinValue.ToString("F2")</label>
+                                <input type="range" id="coinValue" class="form-range" 
+                                       min="@minCoinValue" max="@maxCoinValue" step="0.01" 
+                                       value="@coinValue" @onchange="OnCoinValueChanged" />
+                                <div class="d-flex justify-content-between">
+                                    <small>$@minCoinValue.ToString("F2")</small>
+                                    <small>$@maxCoinValue.ToString("F2")</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="level">Level: @level</label>
+                                <input type="range" id="level" class="form-range" 
+                                       min="1" max="@maxLevel" step="1" 
+                                       value="@level" @onchange="OnLevelChanged" />
+                                <div class="d-flex justify-content-between">
+                                    <small>1</small>
+                                    <small>@maxLevel</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bet Information -->
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h6>Bet (Coins)</h6>
+                                    <h4>@betInCoins</h4>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h6>Total Bet</h6>
+                                    <h4>@totalBet.ToString("C")</h4>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <h6>Last Win</h6>
+                                    <h4>@lastWin.ToString("C")</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Spin Button -->
                     <div class="text-center mb-4">
                         <button class="btn btn-primary btn-lg" @onclick="PerformSpin" 
@@ -68,12 +124,6 @@
                                  <h5>Spin Result</h5>
                                  @if (winningLines != null && winningLines.Count > 0)
                                  {
-                                                                                    <div class="payline-legend mb-2">
-           <small>
-               <span style="color: gray;">⚫</span> Full Payline Path |
-               <span style="color: yellow;">⚫</span> Winning Positions
-           </small>
-       </div>
                                  }
                             <div class="slot-grid position-relative">
                                 @for (int row = 0; row < 3; row++)
@@ -547,6 +597,17 @@
     private double currentHitRate = 0.0;
     private int totalSpins = 0;
 
+    // Betting System Variables
+    private int baseBetPerLevel = 25;
+    private int level = 1;
+    private int maxLevel = 4;
+    private decimal coinValue = 0.10m;
+    private decimal minCoinValue = 0.01m;
+    private decimal maxCoinValue = 0.50m;
+    private int betInCoins = 25;
+    private decimal totalBet = 2.50m;
+    private decimal lastWin = 0.00m;
+
     // Chart data
     private List<string> rtpLabels = new();
     private List<double> rtpData = new();
@@ -598,6 +659,9 @@
         {
             await JS.InvokeVoidAsync("console.log", "🔄 Spin page loaded - triggering reel set reload...");
             
+            // Load betting system configuration
+            LoadBettingConfiguration();
+            
             // Trigger reel set reload on page load (this will handle progress polling internally)
             await TriggerReelSetReload();
             
@@ -607,6 +671,45 @@
             // Force chart initialization after a delay to ensure DOM is ready
             await Task.Delay(500);
             await RenderCharts();
+        }
+    }
+
+    private void LoadBettingConfiguration()
+    {
+        baseBetPerLevel = Configuration.GetValue<int>("BaseBetPerLevel", 25);
+        level = Configuration.GetValue<int>("DefaultLevel", 1);
+        maxLevel = Configuration.GetValue<int>("MaxLevel", 4);
+        coinValue = Configuration.GetValue<decimal>("DefaultCoinValue", 0.10m);
+        minCoinValue = Configuration.GetValue<decimal>("MinCoinValue", 0.01m);
+        maxCoinValue = Configuration.GetValue<decimal>("MaxCoinValue", 0.50m);
+        
+        UpdateBetCalculations();
+    }
+
+    private void UpdateBetCalculations()
+    {
+        betInCoins = baseBetPerLevel * level;
+        totalBet = betInCoins * coinValue;
+        JS.InvokeVoidAsync("console.log", $"🔄 Bet calculations updated - Level: {level}, CoinValue: {coinValue:C}, BetInCoins: {betInCoins}, TotalBet: {totalBet:C}");
+    }
+
+    private void OnCoinValueChanged(ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), out decimal newValue))
+        {
+            coinValue = Math.Max(minCoinValue, Math.Min(maxCoinValue, newValue));
+            UpdateBetCalculations();
+            StateHasChanged();
+        }
+    }
+
+    private void OnLevelChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int newValue))
+        {
+            level = Math.Max(1, Math.Min(maxLevel, newValue));
+            UpdateBetCalculations();
+            StateHasChanged();
         }
     }
 
@@ -664,7 +767,8 @@
     {
         try
         {
-            var apiUrl = "http://37.27.71.156:5000/api/spin/loading-status";
+            var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
+            var apiUrl = $"{apiBaseUrl}/api/spin/loading-status";
             await JS.InvokeVoidAsync("console.log", $"Checking loading status: {apiUrl}");
             
             var response = await Http.GetAsync(apiUrl);
@@ -729,7 +833,8 @@
             await JS.InvokeVoidAsync("console.log", "🔄 Triggering reel set reload from frontend...");
             
             // First test if API is accessible
-            var testUrl = "http://37.27.71.156:5000/api/spin/test";
+            var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
+            var testUrl = $"{apiBaseUrl}/api/spin/test";
             await JS.InvokeVoidAsync("console.log", $"Testing API connectivity: {testUrl}");
             
             var testResponse = await Http.GetAsync(testUrl);
@@ -739,6 +844,25 @@
             {
                 var testJson = await testResponse.Content.ReadAsStringAsync();
                 await JS.InvokeVoidAsync("console.log", $"✅ API test successful: {testJson}");
+                
+                // Also test MongoDB connection
+                var mongoTestUrl = $"{apiBaseUrl}/api/spin/test-mongo";
+                await JS.InvokeVoidAsync("console.log", $"Testing MongoDB connectivity: {mongoTestUrl}");
+                
+                var mongoTestResponse = await Http.GetAsync(mongoTestUrl);
+                await JS.InvokeVoidAsync("console.log", $"MongoDB test response status: {mongoTestResponse.StatusCode}");
+                
+                if (mongoTestResponse.IsSuccessStatusCode)
+                {
+                    var mongoTestJson = await mongoTestResponse.Content.ReadAsStringAsync();
+                    await JS.InvokeVoidAsync("console.log", $"✅ MongoDB test successful: {mongoTestJson}");
+                }
+                else
+                {
+                    var mongoErrorContent = await mongoTestResponse.Content.ReadAsStringAsync();
+                    await JS.InvokeVoidAsync("console.error", $"❌ MongoDB test failed: {mongoErrorContent}");
+                    // Continue anyway - the API is working, MongoDB might be temporary issue
+                }
             }
             else
             {
@@ -757,7 +881,7 @@
             StateHasChanged();
             
             // Make a request to trigger reel set reload
-            var apiUrl = "http://37.27.71.156:5000/api/spin/trigger-reload";
+            var apiUrl = $"{apiBaseUrl}/api/spin/trigger-reload";
             await JS.InvokeVoidAsync("console.log", $"Making GET request to: {apiUrl}");
             
             var response = await Http.GetAsync(apiUrl);
@@ -804,12 +928,17 @@
 
         try
         {
-            var apiUrl = "http://37.27.71.156:5000/api/spin/spin";
+            var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
+            var apiUrl = $"{apiBaseUrl}/api/spin/spin";
             await JS.InvokeVoidAsync("console.log", $"Calling API: {apiUrl}");
             
-            var betAmount = Configuration.GetValue<int>("DefaultBetAmount", 25);
-            var response = await Http.PostAsJsonAsync(apiUrl, new { BetAmount = betAmount });
+            var response = await Http.PostAsJsonAsync(apiUrl, new { 
+                BetAmount = betInCoins, // Legacy support
+                Level = level,
+                CoinValue = coinValue
+            });
             
+            await JS.InvokeVoidAsync("console.log", $"📤 Sent to API - Level: {level}, CoinValue: {coinValue:C}, BetInCoins: {betInCoins}");
             await JS.InvokeVoidAsync("console.log", $"API Response Status: {response.StatusCode}");
             
             if (response.IsSuccessStatusCode)
@@ -833,6 +962,33 @@
                         colArr[rowIdx++] = s.GetString() ?? "";
                     }
                     currentGrid[colIdx++] = colArr;
+                }
+
+                // Parse monetary payout
+                decimal monetaryPayout = 0.00m;
+                if (root.TryGetProperty("monetaryPayout", out var monetaryPayoutProp))
+                {
+                    monetaryPayout = monetaryPayoutProp.GetDecimal();
+                    lastWin = monetaryPayout;
+                    await JS.InvokeVoidAsync("console.log", $"✅ Found monetaryPayout: {monetaryPayout:C}");
+                }
+                else
+                {
+                    await JS.InvokeVoidAsync("console.log", "❌ No monetaryPayout found in API response");
+                }
+
+                // Debug: Check if result.TotalWin is available
+                if (root.TryGetProperty("result", out var resultProp))
+                {
+                    if (resultProp.TryGetProperty("totalWin", out var totalWinProp))
+                    {
+                        var totalWin = totalWinProp.GetDouble();
+                        await JS.InvokeVoidAsync("console.log", $"✅ Found result.totalWin: {totalWin} coins");
+                    }
+                    else
+                    {
+                        await JS.InvokeVoidAsync("console.log", "❌ No result.totalWin found in API response");
+                    }
                 }
 
                 // Parse spin result

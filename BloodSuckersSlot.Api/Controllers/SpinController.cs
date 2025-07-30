@@ -19,24 +19,35 @@ namespace BloodSuckersSlot.Api.Controllers
         private static bool _isLoaded = false;
         private static int _totalReelSets = 0;
         private static int _loadedCount = 0;
-
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger)
         {
             _logger = logger;
-            var connectionString = configuration["MongoDb:ConnectionString"];
-            var dbName = configuration["MongoDb:Database"];
-            var client = new MongoClient(connectionString);
-            var db = client.GetDatabase(dbName);
-            _collection = db.GetCollection<BsonDocument>("reelsets");
-            
-            // Load GameConfig from appsettings
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
-            _logger.LogInformation($"Loaded GameConfig from appsettings - RTP Target: {_config.RtpTarget:P1}, Hit Rate Target: {_config.TargetHitRate:P1}");
             
-            // Start loading reel sets if not already loaded
-            if (!_isLoaded && !_isLoading)
+            try
             {
-                _ = LoadAllReelSetsAsync();
+                var connectionString = configuration["MongoDb:ConnectionString"];
+                var dbName = configuration["MongoDb:Database"];
+                
+                _logger.LogInformation($"Connecting to MongoDB: {dbName} at {connectionString?.Split('@').LastOrDefault() ?? "unknown"}");
+                
+                var client = new MongoClient(connectionString);
+                var db = client.GetDatabase(dbName);
+                _collection = db.GetCollection<BsonDocument>("reelsets");
+                
+                _logger.LogInformation("✅ MongoDB connection established successfully");
+                
+                // Start loading reel sets if not already loaded
+                if (!_isLoaded && !_isLoading)
+                {
+                    _logger.LogInformation("🔄 Starting initial reel set loading...");
+                    _ = LoadAllReelSetsAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ MongoDB connection failed - API cannot start without MongoDB");
+                throw new InvalidOperationException($"MongoDB connection failed: {ex.Message}", ex);
             }
         }
 
@@ -55,6 +66,14 @@ namespace BloodSuckersSlot.Api.Controllers
             
             try
             {
+                if (_collection == null)
+                {
+                    _logger.LogWarning("❌ Cannot load reel sets - MongoDB collection is null");
+                    _isLoading = false;
+                    _isLoaded = false;
+                    return;
+                }
+                
                 _logger.LogInformation("Starting aggressive multi-threaded parallel batch fetching from MongoDB...");
                 
                 // Get total count first
@@ -204,6 +223,8 @@ namespace BloodSuckersSlot.Api.Controllers
             return Ok(new { message = "API is working", timestamp = DateTime.UtcNow });
         }
 
+
+
         [HttpGet("trigger-reload")]
         public async Task<IActionResult> TriggerReelSetReload()
         {
@@ -261,22 +282,30 @@ namespace BloodSuckersSlot.Api.Controllers
         {
             try
             {
-                _logger.LogInformation($"Starting spin with bet amount: {request.BetAmount}");
-                
-                if (!_isLoaded)
+                // Validate bet parameters
+                if (!BettingSystem.ValidateBet(request.Level, request.CoinValue, _config.MaxLevel, _config.MinCoinValue, _config.MaxCoinValue))
                 {
-                    return StatusCode(503, new { error = "Reel sets are still loading. Please wait." });
+                    return BadRequest(new { error = "Invalid bet parameters" });
                 }
 
-                if (_allReelSets.Count == 0)
+                // Calculate bet in coins and monetary value
+                int betInCoins = BettingSystem.CalculateBetInCoins(_config.BaseBetPerLevel, request.Level);
+                decimal totalBet = BettingSystem.CalculateTotalBet(_config.BaseBetPerLevel, request.Level, request.CoinValue);
+                
+                _logger.LogInformation($"Starting spin - Level: {request.Level}, CoinValue: {request.CoinValue:C}, BetInCoins: {betInCoins}, TotalBet: {totalBet:C}");
+                
+                // Use only real reel sets from MongoDB
+                var reelSetsToUse = _allReelSets;
+                
+                if (reelSetsToUse.Count == 0)
                 {
                     return StatusCode(500, new { error = "No reel sets available." });
                 }
 
-                _logger.LogInformation($"✅ Using {_allReelSets.Count} loaded reel sets for spin.");
+                _logger.LogInformation($"✅ Using {reelSetsToUse.Count} reel sets for spin (MongoDB loaded: {_isLoaded})");
                 
-                // Use static helper for spin logic
-                var spinResultTuple = SpinLogicHelper.SpinWithReelSets(_config, request.BetAmount, _allReelSets);
+                // Use static helper for spin logic with bet in coins
+                var spinResultTuple = SpinLogicHelper.SpinWithReelSets(_config, betInCoins, reelSetsToUse);
                 var result = spinResultTuple.Result;
                 var grid = spinResultTuple.Grid;
                 var chosenSet = spinResultTuple.ChosenSet;
@@ -288,18 +317,23 @@ namespace BloodSuckersSlot.Api.Controllers
                     return StatusCode(500, new { error = "Spin failed or was delayed." });
                 }
 
+                // Calculate monetary payout
+                decimal monetaryPayout = BettingSystem.CalculatePayout((int)result.TotalWin, request.CoinValue);
+                
                 // Get actual RTP and Hit Rate from the helper
                 var actualRtp = SpinLogicHelper.GetActualRtp();
                 var actualHitRate = SpinLogicHelper.GetActualHitRate();
 
-                _logger.LogInformation($"Spin completed successfully - TotalWin: {result.TotalWin}, RTP: {actualRtp}, HitRate: {actualHitRate}, WinningLines: {winningLines?.Count ?? 0}");
+                _logger.LogInformation($"Spin completed successfully - TotalWin: {result.TotalWin} coins ({monetaryPayout:C}), RTP: {actualRtp}, HitRate: {actualHitRate}, WinningLines: {winningLines?.Count ?? 0}");
+                _logger.LogInformation($"DEBUG: LineWin: {result.LineWin}, WildWin: {result.WildWin}, ScatterWin: {result.ScatterWin}, BonusWin: {result.BonusWin}");
+                _logger.LogInformation($"DEBUG: BetInCoins: {betInCoins}, CoinValue: {request.CoinValue:C}, Calculated MonetaryPayout: {monetaryPayout:C}");
 
                 // Debug winning lines
                 if (winningLines != null && winningLines.Count > 0)
                 {
                     foreach (var line in winningLines)
                     {
-                        _logger.LogInformation($"Winning line: Symbol={line.Symbol}, Count={line.Count}, WinAmount={line.WinAmount}, Positions={line.Positions?.Count ?? 0}, SvgPath={line.SvgPath}");
+                        _logger.LogInformation($"Winning line: Symbol={line.Symbol}, Count={line.Count}, WinAmount={line.WinAmount} coins, Positions={line.Positions?.Count ?? 0}, SvgPath={line.SvgPath}");
                     }
                 }
                 else
@@ -312,6 +346,9 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     grid,
                     result,
+                    betInCoins,
+                    totalBet,
+                    monetaryPayout,
                     chosenReelSet = new {
                         chosenSet.Name,
                         chosenSet.ExpectedRtp,
@@ -332,7 +369,9 @@ namespace BloodSuckersSlot.Api.Controllers
 
     public class SpinRequestDto
     {
-        public int BetAmount { get; set; } = 25;
+        public int BetAmount { get; set; } = 25; // Legacy support
+        public int Level { get; set; } = 1;
+        public decimal CoinValue { get; set; } = 0.10m;
         // Add more fields as needed (e.g., user/session info)
     }
 } 

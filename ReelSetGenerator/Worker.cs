@@ -48,7 +48,7 @@ namespace ReelSetGenerator
             int batchSize = 1000;
             int total = 100000;
             int written = 0;
-            int betAmount = _config.BaseBetForFreeSpins; // Use configuration instead of hardcoded value
+            int betInCoins = BettingSystem.CalculateBetInCoins(_config.BaseBetPerLevel, _config.DefaultLevel);
             int processed = 0;
             int highRtpCount = 0, midRtpCount = 0, lowRtpCount = 0;
             var startTime = DateTime.UtcNow;
@@ -59,7 +59,7 @@ namespace ReelSetGenerator
                 foreach (var set in reelSets)
                 {
                     var mcStart = DateTime.UtcNow;
-                    (double rtp, double hitRate) = Shared.ReelSetGenerator.MonteCarloSimulate(set, _config.Paylines, _config.MonteCarloSpins, betAmount);
+                    (double rtp, double hitRate) = Shared.ReelSetGenerator.MonteCarloSimulate(set, _config.Paylines, _config.MonteCarloSpins, betInCoins, _config, _config.DefaultLevel);
                     var mcElapsed = DateTime.UtcNow - mcStart;
                     Console.WriteLine($"Monte Carlo for {set.Name} took {mcElapsed.TotalMilliseconds:F1} ms (RTP: {rtp:F4}, HitRate: {hitRate:F4})");
                     set.ExpectedRtp = rtp;

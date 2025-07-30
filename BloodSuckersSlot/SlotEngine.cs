@@ -75,7 +75,7 @@ namespace BloodSuckersSlot
 
 
 
-        public SpinResult Spin(int betAmount)
+        public SpinResult Spin(int betAmount, int level = 1, decimal coinValue = 0.10m)
         {
             List<ReelSet> healthySets = new();
             var spinStartTime = DateTime.Now;
@@ -955,6 +955,11 @@ namespace BloodSuckersSlot
                 for (int col = 0; col < 5; col++)
                 {
                     string symbol = grid[col][line[col]];
+                    
+                    // Skip if symbol is not in configuration
+                    if (!symbolConfigs.ContainsKey(symbol))
+                        break;
+                        
                     bool isWild = symbolConfigs[symbol].IsWild;
 
                     if (col == 0)
@@ -978,7 +983,7 @@ namespace BloodSuckersSlot
                     }
                 }
 
-                if (matchCount >= 3 && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double payout))
+                if (matchCount >= 3 && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double basePayout))
                 {
                     string key = $"{baseSymbol}-{matchCount}-{string.Join(",", line)}";
 
@@ -988,6 +993,8 @@ namespace BloodSuckersSlot
 
                     if (!counted.Contains(key))
                     {
+                        // Symbol payouts are static (don't scale with level)
+                        double payout = basePayout;
                         win += payout;
                         matchedPositions.AddRange(tempPositions);
                         counted.Add(key);
@@ -1111,11 +1118,13 @@ namespace BloodSuckersSlot
                         break; // must be consecutive
                 }
 
-                if (count >= 2 && symbolConfigs["SYM1"].Payouts.TryGetValue(count, out double payout))
+                if (count >= 2 && symbolConfigs["SYM1"].Payouts.TryGetValue(count, out double basePayout))
                 {
                     for (int col = 0; col < count; col++)
                         wildWinPositions.Add((col, line[col]));
 
+                    // Symbol payouts are static (don't scale with level)
+                    double payout = basePayout;
                     wildWin += payout;
 
                     wildLogs.Add($"Wild-only win on line [{string.Join(",", line)}]: SYM1 x{count} => {payout} coins");
