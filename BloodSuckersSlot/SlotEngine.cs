@@ -987,12 +987,28 @@ namespace BloodSuckersSlot
                 {
                     string key = $"{baseSymbol}-{matchCount}-{string.Join(",", line)}";
 
-                    //Check if this symbol already won on another line
-                    if (counted.Any(k => k.StartsWith($"{baseSymbol}-")))
-                        continue;
-
-                    if (!counted.Contains(key))
+                    // Check if we already have a higher paying combination for this symbol
+                    var existingKeys = counted.Where(k => k.StartsWith($"{baseSymbol}-")).ToList();
+                    bool hasHigherPayout = false;
+                    
+                    foreach (var existingKey in existingKeys)
                     {
+                        var parts = existingKey.Split('-');
+                        if (parts.Length >= 2 && int.TryParse(parts[1], out int existingCount))
+                        {
+                            if (existingCount >= matchCount)
+                            {
+                                hasHigherPayout = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!hasHigherPayout)
+                    {
+                        // Remove any existing lower paying combinations for this symbol
+                        counted.RemoveWhere(k => k.StartsWith($"{baseSymbol}-"));
+                        
                         // Symbol payouts are static (don't scale with level)
                         double payout = basePayout;
                         win += payout;
