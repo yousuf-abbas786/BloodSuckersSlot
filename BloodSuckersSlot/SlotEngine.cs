@@ -252,10 +252,11 @@ namespace BloodSuckersSlot
                 grid = SpinReels(chosenSet.Reels);
 
                 lineWin = EvaluatePaylines(grid, _config.Paylines, out lineWinPositions, out paylineLogs);
-                lineWin += EvaluateWildLineWins(grid, _config.Paylines, out wildLineWins, out wildLogs);
+                wildWin = EvaluateWildLineWins(grid, _config.Paylines, out wildLineWins, out wildLogs);
 
                 scatterWin = EvaluateScatters(grid, isFreeSpin, out scatterLog, out scatterCount, betAmount);
-                totalSpinWin = (lineWin * (isFreeSpin ? 3 : 1)) + scatterWin;
+                // Apply free spin tripling rule: Wins are tripled on free spins (except free spins or amounts won in bonus games)
+                totalSpinWin = (lineWin + wildWin + scatterWin) * (isFreeSpin ? 3 : 1);
 
                 bonusLog = "";
                 bonusTriggered = CheckBonusTrigger(grid, _config.Paylines, scatterCount, ref bonusLog);
@@ -941,7 +942,7 @@ namespace BloodSuckersSlot
             out List<string> paylineLogs)
         {
             double win = 0;
-            var counted = new HashSet<string>();
+            var paylineWins = new Dictionary<string, Dictionary<string, int>>(); // payline -> symbol -> highest count
             matchedPositions = new List<(int col, int row)>();
             paylineLogs = new List<string>();
 
@@ -973,9 +974,10 @@ namespace BloodSuckersSlot
                     }
                     else
                     {
-                        if (symbol == baseSymbol || (isWild && !symbolConfigs[baseSymbol].IsScatter && !symbolConfigs[baseSymbol].IsBonus))
+                        // FIXED: Only allow exact symbol matches, no wild substitution in EvaluatePaylines
+                        // Wild combinations should be handled exclusively by EvaluateWildLineWins
+                        if (symbol == baseSymbol)
                         {
-                            if (isWild) wildUsed = true;
                             matchCount++;
                             tempPositions.Add((col, line[col]));
                         }
@@ -985,41 +987,49 @@ namespace BloodSuckersSlot
 
                 if (matchCount >= 3 && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double basePayout))
                 {
-                    string key = $"{baseSymbol}-{matchCount}-{string.Join(",", line)}";
-
-                    // Check if we already have a higher paying combination for this symbol
-                    var existingKeys = counted.Where(k => k.StartsWith($"{baseSymbol}-")).ToList();
-                    bool hasHigherPayout = false;
+                    string paylineKey = string.Join(",", line);
                     
-                    foreach (var existingKey in existingKeys)
+                    // RULE 1: Sum all payline wins for same symbol across different paylines
+                    // RULE 2: For same payline, only consider the highest count for this symbol on this specific payline
+                    
+                    // Check if we already have a higher count for this symbol on this specific payline
+                    if (!paylineWins.ContainsKey(paylineKey))
+                        paylineWins[paylineKey] = new Dictionary<string, int>();
+                    
+                    if (!paylineWins[paylineKey].ContainsKey(baseSymbol) || paylineWins[paylineKey][baseSymbol] < matchCount)
                     {
-                        var parts = existingKey.Split('-');
-                        if (parts.Length >= 2 && int.TryParse(parts[1], out int existingCount))
-                        {
-                            if (existingCount >= matchCount)
-                            {
-                                hasHigherPayout = true;
-                                break;
-                            }
-                        }
+                        // Update to the higher count for this symbol on this payline
+                        paylineWins[paylineKey][baseSymbol] = matchCount;
                     }
-                    
-                    if (!hasHigherPayout)
-                    {
-                        // Remove any existing lower paying combinations for this symbol
-                        counted.RemoveWhere(k => k.StartsWith($"{baseSymbol}-"));
-                        
-                        // Symbol payouts are static (don't scale with level)
-                        double payout = basePayout;
-                        win += payout;
-                        matchedPositions.AddRange(tempPositions);
-                        counted.Add(key);
+                }
+            }
 
+            // Now sum up all the wins across all paylines
+            foreach (var paylineEntry in paylineWins)
+            {
+                string paylineKey = paylineEntry.Key;
+                foreach (var symbolEntry in paylineEntry.Value)
+                {
+                    string symbol = symbolEntry.Key;
+                    int count = symbolEntry.Value;
+                    
+                    if (symbolConfigs[symbol].Payouts.TryGetValue(count, out double payout))
+                    {
+                        win += payout;
+                        
+                        // Reconstruct the payline positions for logging
+                        var payline = paylineKey.Split(',').Select(int.Parse).ToArray();
+                        var positions = new List<(int col, int row)>();
+                        for (int col = 0; col < 5; col++)
+                        {
+                            positions.Add((col, payline[col]));
+                        }
+                        matchedPositions.AddRange(positions);
+                        
                         if (!_isSimulationMode)
                         {
                             paylineLogs.Add(
-                                $"Payline win on line [{string.Join(",", line)}]: {baseSymbol} x{matchCount} => {payout} coins" +
-                                (wildUsed ? " (with wilds)" : ""));
+                                $"Payline win on line [{paylineKey}]: {symbol} x{count} => {payout} coins");
                         }
                     }
                 }
@@ -1122,29 +1132,101 @@ namespace BloodSuckersSlot
 
             foreach (var line in paylines)
             {
-                int count = 0;
+                int wildCount = 0;
+                int symbolCount = 0;
+                string symbolType = null;
+                bool hasSymbols = false;
+                var wildPositions = new List<(int col, int row)>();
+                var symbolPositions = new List<(int col, int row)>();
+                
+                // Count wilds and symbols separately
                 for (int col = 0; col < 5; col++)
                 {
                     int row = line[col];
                     string symbol = grid[col][row];
 
-                    if (symbol == "SYM1")
-                        count++;
+                    if (symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsWild)
+                    {
+                        wildCount++;
+                        wildPositions.Add((col, row));
+                    }
+                    else if (symbolConfigs.ContainsKey(symbol) && !symbolConfigs[symbol].IsWild && !symbolConfigs[symbol].IsScatter && !symbolConfigs[symbol].IsBonus)
+                    {
+                        // Regular symbol
+                        if (symbolType == null)
+                        {
+                            symbolType = symbol;
+                            symbolCount = 1;
+                            hasSymbols = true;
+                        }
+                        else if (symbol == symbolType)
+                        {
+                            symbolCount++;
+                        }
+                        else
+                        {
+                            // Different symbol, break the line
+                            break;
+                        }
+                        symbolPositions.Add((col, row));
+                    }
                     else
-                        break; // must be consecutive
+                    {
+                        // Invalid symbol, break the line
+                        break;
+                    }
                 }
 
-                if (count >= 2 && symbolConfigs["SYM1"].Payouts.TryGetValue(count, out double basePayout))
+                // NEW RULE 3: Compare wild-only vs symbol+wild wins, take the highest
+                double wildOnlyPayout = 0;
+                double symbolWithWildPayout = 0;
+                string winningType = "";
+                var winningPositions = new List<(int col, int row)>();
+
+                // Calculate wild-only payout
+                // Find any wild symbol to use for wild-only payouts
+                var wildSymbol = symbolConfigs.FirstOrDefault(kvp => kvp.Value.IsWild).Key;
+                if (wildCount >= 2 && wildSymbol != null && symbolConfigs[wildSymbol].Payouts.TryGetValue(wildCount, out double wildPayout))
                 {
-                    for (int col = 0; col < count; col++)
-                        wildWinPositions.Add((col, line[col]));
-
-                    // Symbol payouts are static (don't scale with level)
-                    double payout = basePayout;
-                    wildWin += payout;
-
-                    wildLogs.Add($"Wild-only win on line [{string.Join(",", line)}]: SYM1 x{count} => {payout} coins");
+                    wildOnlyPayout = wildPayout;
                 }
+
+                // Calculate symbol+wild payout
+                if (hasSymbols && symbolType != null && symbolCount >= 3 && symbolConfigs.ContainsKey(symbolType))
+                {
+                    int totalCount = symbolCount + wildCount;
+                    if (symbolConfigs[symbolType].Payouts.TryGetValue(totalCount, out double symbolPayout))
+                    {
+                        symbolWithWildPayout = symbolPayout;
+                    }
+                }
+
+                // Take the higher payout
+                if (wildOnlyPayout > symbolWithWildPayout)
+                {
+                    wildWin += wildOnlyPayout;
+                    winningType = "wild-only";
+                    winningPositions.AddRange(wildPositions);
+                    
+                    if (!_isSimulationMode)
+                    {
+                        wildLogs.Add($"Wild-only win on line [{string.Join(",", line)}]: {wildSymbol} x{wildCount} => {wildOnlyPayout} coins");
+                    }
+                }
+                else if (symbolWithWildPayout > 0)
+                {
+                    wildWin += symbolWithWildPayout;
+                    winningType = "symbol+wild";
+                    winningPositions.AddRange(symbolPositions);
+                    winningPositions.AddRange(wildPositions);
+                    
+                    if (!_isSimulationMode)
+                    {
+                        wildLogs.Add($"Symbol+Wild win on line [{string.Join(",", line)}]: {symbolType} x{symbolCount + wildCount} => {symbolWithWildPayout} coins");
+                    }
+                }
+
+                wildWinPositions.AddRange(winningPositions);
             }
 
             return wildWin;

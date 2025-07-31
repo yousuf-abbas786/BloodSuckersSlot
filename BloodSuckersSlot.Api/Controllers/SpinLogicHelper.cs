@@ -123,12 +123,53 @@ namespace BloodSuckersSlot.Api.Controllers
             }
 
             // Evaluate wins and collect winning lines - FIXED: Use proper symbol configs
-                            var lineWin = EvaluatePaylinesWithLines(grid, config.Paylines, config.Symbols, out var lineWinningLines);
-                var wildWin = EvaluateWildLineWinsWithLines(grid, config.Paylines, config.Symbols, out var wildWinningLines);
-                var scatterWin = EvaluateScattersWithLines(grid, config.Symbols, isFreeSpin, out var scatterWinningLines, out var scatterCount, betAmount);
+            var lineWin = EvaluatePaylinesWithLines(grid, config.Paylines, config.Symbols, out var lineWinningLines);
+            var wildWin = EvaluateWildLineWinsWithLines(grid, config.Paylines, config.Symbols, out var wildWinningLines);
+            var scatterWin = EvaluateScattersWithLines(grid, config.Symbols, isFreeSpin, out var scatterWinningLines, out var scatterCount, betAmount);
 
-            // FIXED: Apply free spin multiplier like original SlotEngine
-            var totalWin = (lineWin * (isFreeSpin ? 3 : 1)) + wildWin + scatterWin;
+            // FIXED: Remove duplicate wins - if a symbol is processed by wild evaluation, remove it from line evaluation
+            // We need to check not just the symbol, but also the payline to avoid removing wins from different paylines
+            var wildProcessedSymbolsOnPaylines = new Dictionary<string, Dictionary<int, double>>(); // symbol -> payline -> wild win amount
+            foreach (var wildLine in wildWinningLines)
+            {
+                if (!wildProcessedSymbolsOnPaylines.ContainsKey(wildLine.Symbol))
+                    wildProcessedSymbolsOnPaylines[wildLine.Symbol] = new Dictionary<int, double>();
+                wildProcessedSymbolsOnPaylines[wildLine.Symbol][wildLine.PaylineIndex] = wildLine.WinAmount;
+            }
+            
+            // Remove line wins for symbols that were already processed by wild evaluation on the same payline
+            var filteredLineWinningLines = new List<WinningLine>();
+            foreach (var line in lineWinningLines)
+            {
+                bool shouldKeep = true;
+                if (wildProcessedSymbolsOnPaylines.ContainsKey(line.Symbol))
+                {
+                    if (wildProcessedSymbolsOnPaylines[line.Symbol].ContainsKey(line.PaylineIndex))
+                    {
+                        double wildWinAmount = wildProcessedSymbolsOnPaylines[line.Symbol][line.PaylineIndex];
+                        if (wildWinAmount >= line.WinAmount)
+                        {
+                            shouldKeep = false;
+                            Console.WriteLine($"DEBUG: Removing duplicate line win - Symbol: {line.Symbol}, PaylineIndex: {line.PaylineIndex}, LineWin: {line.WinAmount}, WildWin: {wildWinAmount}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"DEBUG: Keeping line win (higher payout) - Symbol: {line.Symbol}, PaylineIndex: {line.PaylineIndex}, LineWin: {line.WinAmount}, WildWin: {wildWinAmount}");
+                        }
+                    }
+                }
+                if (shouldKeep)
+                {
+                    filteredLineWinningLines.Add(line);
+                }
+            }
+            lineWinningLines = filteredLineWinningLines;
+            
+            // Recalculate lineWin after removing duplicates
+            lineWin = lineWinningLines.Sum(line => line.WinAmount);
+
+            // Apply free spin tripling rule: Wins are tripled on free spins (except free spins or amounts won in bonus games)
+            var totalWin = (lineWin + wildWin + scatterWin) * (isFreeSpin ? 3 : 1);
 
             // Combine all winning lines
             winningLines.AddRange(lineWinningLines);
@@ -238,7 +279,7 @@ namespace BloodSuckersSlot.Api.Controllers
             out List<WinningLine> winningLines)
         {
             double win = 0;
-            var counted = new HashSet<string>();
+            var paylineWins = new Dictionary<string, Dictionary<string, int>>(); // payline -> symbol -> highest count
             winningLines = new List<WinningLine>();
 
             for (int paylineIndex = 0; paylineIndex < paylines.Count; paylineIndex++)
@@ -285,9 +326,10 @@ namespace BloodSuckersSlot.Api.Controllers
                     }
                     else
                     {
-                        if (symbol == baseSymbol || (isWild && !symbolConfigs[baseSymbol].IsScatter && !symbolConfigs[baseSymbol].IsBonus))
+                        // FIXED: Only allow exact symbol matches, no wild substitution in EvaluatePaylinesWithLines
+                        // Wild combinations should be handled exclusively by EvaluateWildLineWinsWithLines
+                        if (symbol == baseSymbol)
                         {
-                            if (isWild) wildUsed = true;
                             matchCount++;
                             tempPositions.Add(new Position { Col = col, Row = line[col] });
                             Console.WriteLine($"DEBUG: Match found! Symbol {symbol} matches {baseSymbol}, matchCount = {matchCount}");
@@ -304,55 +346,19 @@ namespace BloodSuckersSlot.Api.Controllers
 
                 if (matchCount >= 3 && symbolConfigs.ContainsKey(baseSymbol) && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double basePayout))
                 {
-                    string key = $"{baseSymbol}-{matchCount}-{string.Join(",", line)}";
-
-                    // Check if we already have a higher paying combination for this symbol
-                    var existingKeys = counted.Where(k => k.StartsWith($"{baseSymbol}-")).ToList();
-                    bool hasHigherPayout = false;
+                    string paylineKey = string.Join(",", line);
                     
-                    foreach (var existingKey in existingKeys)
-                    {
-                        var parts = existingKey.Split('-');
-                        if (parts.Length >= 2 && int.TryParse(parts[1], out int existingCount))
-                        {
-                            if (existingCount >= matchCount)
-                            {
-                                hasHigherPayout = true;
-                                break;
-                            }
-                        }
-                    }
+                    // RULE 1: Sum all payline wins for same symbol across different paylines
+                    // RULE 2: For same payline, only consider the highest count for this symbol on this specific payline
                     
-                    if (!hasHigherPayout)
+                    // Check if we already have a higher count for this symbol on this specific payline
+                    if (!paylineWins.ContainsKey(paylineKey))
+                        paylineWins[paylineKey] = new Dictionary<string, int>();
+                    
+                    if (!paylineWins[paylineKey].ContainsKey(baseSymbol) || paylineWins[paylineKey][baseSymbol] < matchCount)
                     {
-                        // Remove any existing lower paying combinations for this symbol
-                        counted.RemoveWhere(k => k.StartsWith($"{baseSymbol}-"));
-                        
-                        // Symbol payouts are static (don't scale with level)
-                        double payout = basePayout;
-                        win += payout;
-                        counted.Add(key);
-                        
-                        Console.WriteLine($"EvaluatePaylinesWithLines: Found winning line - Symbol: {baseSymbol}, Count: {matchCount}, Win: {payout} coins");
-                        
-                        // Create full payline path (all 5 positions)
-                        var fullPaylinePath = new List<Position>();
-                        for (int col = 0; col < 5; col++)
-                        {
-                            fullPaylinePath.Add(new Position { Col = col, Row = line[col] });
-                        }
-                        
-                        // Create winning line with proper data
-                        winningLines.Add(new WinningLine
-                        {
-                            Positions = new List<Position>(tempPositions),
-                            Symbol = baseSymbol,
-                            Count = matchCount,
-                            WinAmount = payout,
-                            PaylineType = "line",
-                            PaylineIndex = paylineIndex,
-                            FullPaylinePath = fullPaylinePath
-                        });
+                        // Update to the higher count for this symbol on this payline
+                        paylineWins[paylineKey][baseSymbol] = matchCount;
                     }
                 }
                 else
@@ -361,6 +367,52 @@ namespace BloodSuckersSlot.Api.Controllers
                     if (baseSymbol != null && symbolConfigs.ContainsKey(baseSymbol))
                     {
                         Console.WriteLine($"DEBUG: Symbol {baseSymbol} payouts: {string.Join(", ", symbolConfigs[baseSymbol].Payouts.Select(kvp => $"{kvp.Key}:{kvp.Value}"))}");
+                    }
+                }
+            }
+
+            // Now sum up all the wins across all paylines and create winning lines
+            foreach (var paylineEntry in paylineWins)
+            {
+                string paylineKey = paylineEntry.Key;
+                var payline = paylineKey.Split(',').Select(int.Parse).ToArray();
+                
+                foreach (var symbolEntry in paylineEntry.Value)
+                {
+                    string symbol = symbolEntry.Key;
+                    int count = symbolEntry.Value;
+                    
+                    if (symbolConfigs[symbol].Payouts.TryGetValue(count, out double payout))
+                    {
+                        win += payout;
+                        
+                        Console.WriteLine($"EvaluatePaylinesWithLines: Found winning line - Symbol: {symbol}, Count: {count}, Win: {payout} coins");
+                        
+                        // Create winning positions (only the matching positions)
+                        var winningPositions = new List<Position>();
+                        for (int col = 0; col < count; col++)
+                        {
+                            winningPositions.Add(new Position { Col = col, Row = payline[col] });
+                        }
+                        
+                        // Create full payline path (all 5 positions)
+                        var fullPaylinePath = new List<Position>();
+                        for (int col = 0; col < 5; col++)
+                        {
+                            fullPaylinePath.Add(new Position { Col = col, Row = payline[col] });
+                        }
+                        
+                        // Create winning line with proper data
+                        winningLines.Add(new WinningLine
+                        {
+                            Positions = new List<Position>(winningPositions),
+                            Symbol = symbol,
+                            Count = count,
+                            WinAmount = payout,
+                            PaylineType = "line",
+                            PaylineIndex = Array.IndexOf(paylines.ToArray(), payline),
+                            FullPaylinePath = fullPaylinePath
+                        });
                     }
                 }
             }
@@ -376,30 +428,89 @@ namespace BloodSuckersSlot.Api.Controllers
             for (int paylineIndex = 0; paylineIndex < paylines.Count; paylineIndex++)
             {
                 var line = paylines[paylineIndex];
-                int count = 0;
-                var positions = new List<Position>();
+                int wildCount = 0;
+                int symbolCount = 0;
+                string symbolType = null;
+                bool hasSymbols = false;
+                var wildPositions = new List<Position>();
+                var symbolPositions = new List<Position>();
                 
+                // Count wilds and symbols separately
                 for (int col = 0; col < 5; col++)
                 {
                     int row = line[col];
                     string symbol = grid[col][row];
 
-                    if (symbol == "SYM1")
+                    if (symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsWild)
                     {
-                        count++;
-                        positions.Add(new Position { Col = col, Row = row });
+                        wildCount++;
+                        wildPositions.Add(new Position { Col = col, Row = row });
+                    }
+                    else if (symbolConfigs.ContainsKey(symbol) && !symbolConfigs[symbol].IsWild && !symbolConfigs[symbol].IsScatter && !symbolConfigs[symbol].IsBonus)
+                    {
+                        // Regular symbol
+                        if (symbolType == null)
+                        {
+                            symbolType = symbol;
+                            symbolCount = 1;
+                            hasSymbols = true;
+                        }
+                        else if (symbol == symbolType)
+                        {
+                            symbolCount++;
+                        }
+                        else
+                        {
+                            // Different symbol, break the line
+                            break;
+                        }
+                        symbolPositions.Add(new Position { Col = col, Row = row });
                     }
                     else
+                    {
+                        // Invalid symbol, break the line
                         break;
+                    }
                 }
 
-                if (count >= 2 && symbolConfigs.ContainsKey("SYM1") && symbolConfigs["SYM1"].Payouts.TryGetValue(count, out double basePayout))
+                // FIXED: Only process this payline if it actually contains wilds
+                if (wildCount == 0)
                 {
-                    // Symbol payouts are static (don't scale with level)
-                    double payout = basePayout;
-                    wildWin += payout;
+                    continue; // Skip this payline - no wilds to process
+                }
+
+                // NEW RULE 3: Compare wild-only vs symbol+wild wins, take the highest
+                double wildOnlyPayout = 0;
+                double symbolWithWildPayout = 0;
+                string winningType = "";
+                var winningPositions = new List<Position>();
+
+                // Calculate wild-only payout
+                // Find any wild symbol to use for wild-only payouts
+                var wildSymbol = symbolConfigs.FirstOrDefault(kvp => kvp.Value.IsWild).Key;
+                if (wildCount >= 2 && wildSymbol != null && symbolConfigs[wildSymbol].Payouts.TryGetValue(wildCount, out double wildPayout))
+                {
+                    wildOnlyPayout = wildPayout;
+                }
+
+                // Calculate symbol+wild payout
+                if (hasSymbols && symbolType != null && symbolCount >= 3 && symbolConfigs.ContainsKey(symbolType))
+                {
+                    int totalCount = symbolCount + wildCount;
+                    if (symbolConfigs[symbolType].Payouts.TryGetValue(totalCount, out double symbolPayout))
+                    {
+                        symbolWithWildPayout = symbolPayout;
+                    }
+                }
+
+                // Take the higher payout
+                if (wildOnlyPayout > symbolWithWildPayout)
+                {
+                    wildWin += wildOnlyPayout;
+                    winningType = "wild-only";
+                    winningPositions.AddRange(wildPositions);
                     
-                    Console.WriteLine($"EvaluateWildLineWinsWithLines: Found wild win - Count: {count}, Win: {payout} coins");
+                    Console.WriteLine($"EvaluateWildLineWinsWithLines: Found wild-only win - Count: {wildCount}, Win: {wildOnlyPayout} coins");
                     
                     // Create full payline path (all 5 positions)
                     var fullPaylinePath = new List<Position>();
@@ -411,10 +522,38 @@ namespace BloodSuckersSlot.Api.Controllers
                     // Create winning line
                     winningLines.Add(new WinningLine
                     {
-                        Positions = positions,
-                        Symbol = "SYM1",
-                        Count = count,
-                        WinAmount = payout,
+                        Positions = winningPositions,
+                        Symbol = wildSymbol,
+                        Count = wildCount,
+                        WinAmount = wildOnlyPayout,
+                        PaylineType = "wild",
+                        PaylineIndex = paylineIndex,
+                        FullPaylinePath = fullPaylinePath
+                    });
+                }
+                else if (symbolWithWildPayout > 0)
+                {
+                    wildWin += symbolWithWildPayout;
+                    winningType = "symbol+wild";
+                    winningPositions.AddRange(symbolPositions);
+                    winningPositions.AddRange(wildPositions);
+                    
+                    Console.WriteLine($"EvaluateWildLineWinsWithLines: Found symbol+wild win - Symbol: {symbolType}, Count: {symbolCount + wildCount}, Win: {symbolWithWildPayout} coins");
+                    
+                    // Create full payline path (all 5 positions)
+                    var fullPaylinePath = new List<Position>();
+                    for (int col = 0; col < 5; col++)
+                    {
+                        fullPaylinePath.Add(new Position { Col = col, Row = line[col] });
+                    }
+                    
+                    // Create winning line
+                    winningLines.Add(new WinningLine
+                    {
+                        Positions = winningPositions,
+                        Symbol = symbolType,
+                        Count = symbolCount + wildCount,
+                        WinAmount = symbolWithWildPayout,
                         PaylineType = "wild",
                         PaylineIndex = paylineIndex,
                         FullPaylinePath = fullPaylinePath
