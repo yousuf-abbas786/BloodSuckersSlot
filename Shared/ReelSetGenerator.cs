@@ -362,6 +362,12 @@ namespace Shared
                     }
                 }
 
+                // FIXED: Only process this payline if it actually contains wilds
+                if (wildCount == 0)
+                {
+                    continue; // Skip this payline - no wilds to process
+                }
+
                 // NEW RULE 3: Compare wild-only vs symbol+wild wins, take the highest
                 double wildOnlyPayout = 0;
                 double symbolWithWildPayout = 0;
