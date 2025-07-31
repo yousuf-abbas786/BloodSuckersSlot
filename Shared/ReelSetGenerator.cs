@@ -167,7 +167,7 @@ namespace Shared
             int level = 1,
             Func<string[][], List<int[]>, int, (bool, double)> bonusTriggerAndWin = null)
         {
-            var rng = new Random();
+            var rng = new Random(Guid.NewGuid().GetHashCode()); // Thread-safe random
             double totalWin = 0;
             int winCount = 0;
             int totalSimulatedFreeSpins = 0;
@@ -176,6 +176,13 @@ namespace Shared
 
             // Use symbol configurations from GameConfig instead of hardcoding
             var symbolConfigs = config.Symbols;
+
+            // Pre-allocate grid for better performance
+            var grid = new string[5][];
+            for (int i = 0; i < 5; i++)
+            {
+                grid[i] = new string[3];
+            }
 
             for (int spin = 0; spin < spins; spin++)
             {
@@ -186,10 +193,10 @@ namespace Shared
                     totalSimulatedFreeSpins++;
                 }
 
-                var grid = SpinReels(set.Reels, rng);
-                double lineWin = EvaluatePaylines(grid, paylines, symbolConfigs);
-                double wildWin = EvaluateWildLineWins(grid, paylines, symbolConfigs);
-                double scatterWin = EvaluateScatters(grid, betAmount, out int scatterCount, symbolConfigs);
+                SpinReelsOptimized(set.Reels, rng, grid);
+                double lineWin = EvaluatePaylinesOptimized(grid, paylines, symbolConfigs);
+                double wildWin = EvaluateWildLineWinsOptimized(grid, paylines, symbolConfigs);
+                double scatterWin = EvaluateScattersOptimized(grid, betAmount, out int scatterCount, symbolConfigs);
 
                 double totalSpinWin = (lineWin + wildWin) * (isFreeSpin ? 3 : 1) + scatterWin;
 
@@ -215,14 +222,11 @@ namespace Shared
             return (expectedRtp, estimatedHitRate);
         }
 
-        // Helper methods for simulation - Updated to use same logic as SlotEngine
-        private static string[][] SpinReels(List<List<string>> reels, Random rng)
+        // Optimized version that reuses the grid array
+        private static void SpinReelsOptimized(List<List<string>> reels, Random rng, string[][] grid)
         {
-            var result = new string[5][];
             for (int col = 0; col < 5; col++)
             {
-                result[col] = new string[3];
-                
                 // Pick a random start position (like real slot reels)
                 int startPos = rng.Next(reels[col].Count);
                 
@@ -230,13 +234,13 @@ namespace Shared
                 for (int row = 0; row < 3; row++)
                 {
                     int pos = (startPos + row) % reels[col].Count;
-                    result[col][row] = reels[col][pos];
+                    grid[col][row] = reels[col][pos];
                 }
             }
-            return result;
         }
 
-        private static double EvaluatePaylines(string[][] grid, List<int[]> paylines, Dictionary<string, SymbolConfig> symbolConfigs)
+        // Optimized version that reduces allocations
+        private static double EvaluatePaylinesOptimized(string[][] grid, List<int[]> paylines, Dictionary<string, SymbolConfig> symbolConfigs)
         {
             double win = 0;
             var counted = new HashSet<string>();
@@ -246,7 +250,6 @@ namespace Shared
                 string baseSymbol = null;
                 int matchCount = 0;
                 bool wildUsed = false;
-                var tempPositions = new List<(int col, int row)>();
 
                 for (int col = 0; col < 5; col++)
                 {
@@ -265,7 +268,6 @@ namespace Shared
 
                         baseSymbol = symbol;
                         matchCount = 1;
-                        tempPositions.Add((col, line[col]));
                     }
                     else
                     {
@@ -273,7 +275,6 @@ namespace Shared
                         {
                             if (isWild) wildUsed = true;
                             matchCount++;
-                            tempPositions.Add((col, line[col]));
                         }
                         else break;
                     }
@@ -316,14 +317,13 @@ namespace Shared
             return win;
         }
 
-        private static double EvaluateWildLineWins(string[][] grid, List<int[]> paylines, Dictionary<string, SymbolConfig> symbolConfigs)
+        private static double EvaluateWildLineWinsOptimized(string[][] grid, List<int[]> paylines, Dictionary<string, SymbolConfig> symbolConfigs)
         {
             double wildWin = 0;
 
             foreach (var line in paylines)
             {
                 int count = 0;
-                var positions = new List<(int col, int row)>();
                 
                 for (int col = 0; col < 5; col++)
                 {
@@ -333,7 +333,6 @@ namespace Shared
                     if (symbol == "SYM1")
                     {
                         count++;
-                        positions.Add((col, row));
                     }
                     else
                         break;
@@ -350,10 +349,22 @@ namespace Shared
             return wildWin;
         }
 
-        private static double EvaluateScatters(string[][] grid, int betAmount, out int scatterCount, Dictionary<string, SymbolConfig> symbolConfigs)
+        private static double EvaluateScattersOptimized(string[][] grid, int betAmount, out int scatterCount, Dictionary<string, SymbolConfig> symbolConfigs)
         {
-            scatterCount = grid.SelectMany(col => col)
-                               .Count(sym => symbolConfigs.ContainsKey(sym) && symbolConfigs[sym].IsScatter);
+            scatterCount = 0;
+            
+            // Count scatters manually for better performance
+            for (int col = 0; col < 5; col++)
+            {
+                for (int row = 0; row < 3; row++)
+                {
+                    string symbol = grid[col][row];
+                    if (symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsScatter)
+                    {
+                        scatterCount++;
+                    }
+                }
+            }
 
             double multiplier = 0;
             int freeSpinsAwarded = 0;
