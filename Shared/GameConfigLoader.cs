@@ -13,6 +13,7 @@ namespace Shared
             config.RtpTarget = configuration.GetValue<double>("GameConfig:RtpTarget", 0.88);
             config.TargetHitRate = configuration.GetValue<double>("GameConfig:TargetHitRate", 0.45);
             config.BaseBetForFreeSpins = configuration.GetValue<int>("GameConfig:BaseBetForFreeSpins", 25);
+            config.MonteCarloSpins = configuration.GetValue<int>("GameConfig:MonteCarloSpins", 10000);
             
             // Load betting system properties
             configuration.Bind("GameConfig:MaxFreeSpinsPerSession", config.MaxFreeSpinsPerSession);
