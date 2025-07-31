@@ -29,17 +29,25 @@ namespace ReelSetGenerator
             var dbName = _configuration["MongoDb:Database"];
             var client = new MongoClient(connectionString);
             var db = client.GetDatabase(dbName);
-            _collection = db.GetCollection<BsonDocument>("reelsets");
+            _collection = db.GetCollection<BsonDocument>("reelsets1");
 
-            // Ensure indexes exist
+            // Ensure indexes exist for optimal performance
             var indexKeys = new List<CreateIndexModel<BsonDocument>>
             {
                 new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("name")),
                 new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("tag")),
                 new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp")),
-                new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("estimatedHitRate"))
+                new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("estimatedHitRate")),
+                // Compound index for efficient querying
+                new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Combine(
+                    Builders<BsonDocument>.IndexKeys.Ascending("tag"),
+                    Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp")
+                ))
             };
             _collection.Indexes.CreateMany(indexKeys);
+            
+            // Validate collection is empty before starting (will be done in ExecuteAsync)
+            _logger.LogInformation("Collection validation will be performed at startup...");
             
             // Load GameConfig from appsettings
             _config = GameConfigLoader.LoadFromConfiguration(_configuration);
@@ -51,6 +59,13 @@ namespace ReelSetGenerator
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            // Validate collection is empty before starting
+            var existingCount = await _collection.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty);
+            if (existingCount > 0)
+            {
+                _logger.LogWarning($"Collection 'reelsets1' already contains {existingCount:N0} documents. Consider clearing it first.");
+            }
+            
             int totalReelSets = 1000000; // 1 million reel sets
             int batchSize = 10000; // Larger batch size for better performance
             int processed = 0;
@@ -98,8 +113,16 @@ namespace ReelSetGenerator
                 processed += processedReelSets.Count;
 
                 var elapsed = DateTime.UtcNow - startTime;
+                
+                // Log progress with ETA
+                var avgTimePerBatch = elapsed.TotalMilliseconds / (batchStart / batchSize + 1);
+                var remainingBatches = (totalReelSets - batchStart - currentBatchSize) / batchSize;
+                var eta = TimeSpan.FromMilliseconds(avgTimePerBatch * remainingBatches);
+                
+                _logger.LogInformation($"Progress: {processed:N0}/{totalReelSets:N0} ({processed * 100.0 / totalReelSets:F1}%) - ETA: {eta:hh\\:mm\\:ss}");
+                _logger.LogInformation($"Distribution: UltraHigh: {ultraHighRtpCount}, High: {highRtpCount}, Mid: {midRtpCount}, Low: {lowRtpCount}, UltraLow: {ultraLowRtpCount}");
                 var rate = processed / elapsed.TotalSeconds;
-                var eta = TimeSpan.FromSeconds((totalReelSets - processed) / rate);
+                var finalEta = TimeSpan.FromSeconds((totalReelSets - processed) / rate);
 
                 _logger.LogInformation($"Processed {processed:N0}/{totalReelSets:N0} reel sets " +
                                     $"(Rate: {rate:F0}/sec, Elapsed: {elapsed.TotalMinutes:F1}min, ETA: {eta.TotalMinutes:F1}min)");
@@ -108,6 +131,9 @@ namespace ReelSetGenerator
             var totalElapsed = DateTime.UtcNow - startTime;
             _logger.LogInformation($"Reel set generation complete in {totalElapsed.TotalMinutes:F1} minutes");
             _logger.LogInformation($"Final counts - UltraHighRtp: {ultraHighRtpCount:N0}, HighRtp: {highRtpCount:N0}, MidRtp: {midRtpCount:N0}, LowRtp: {lowRtpCount:N0}, UltraLowRtp: {ultraLowRtpCount:N0}");
+            
+            // Final validation
+            await ValidateFinalCollection();
         }
 
         private async Task<List<ReelSet>> GenerateReelSetsParallelAsync(int count, CancellationToken cancellationToken)
@@ -352,6 +378,41 @@ namespace ReelSetGenerator
             if (setName.StartsWith("LowRtp")) return "LowRtp";
             if (setName.StartsWith("UltraLowRtp")) return "UltraLowRtp";
             return "Unknown";
+        }
+        
+        private async Task ValidateFinalCollection()
+        {
+            _logger.LogInformation("Validating final collection...");
+            
+            var totalCount = await _collection.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty);
+            _logger.LogInformation($"Total documents in reelsets1: {totalCount:N0}");
+            
+            // Count by tag
+            var pipeline = new BsonDocument[]
+            {
+                new BsonDocument("$group", new BsonDocument
+                {
+                    { "_id", "$tag" },
+                    { "count", new BsonDocument("$sum", 1) },
+                    { "avgRtp", new BsonDocument("$avg", "$expectedRtp") },
+                    { "avgHitRate", new BsonDocument("$avg", "$estimatedHitRate") }
+                })
+            };
+            
+            var results = await _collection.AggregateAsync<BsonDocument>(pipeline);
+            var resultsList = await results.ToListAsync();
+            
+            foreach (var result in resultsList)
+            {
+                var tag = result["_id"].AsString;
+                var count = result["count"].AsInt32;
+                var avgRtp = result["avgRtp"].AsDouble;
+                var avgHitRate = result["avgHitRate"].AsDouble;
+                
+                _logger.LogInformation($"Tag: {tag} - Count: {count:N0} - Avg RTP: {avgRtp:P2} - Avg Hit Rate: {avgHitRate:P2}");
+            }
+            
+            _logger.LogInformation("✅ Collection validation complete. Ready for migration!");
         }
     }
 }
