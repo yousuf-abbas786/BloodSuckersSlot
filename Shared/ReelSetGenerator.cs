@@ -167,7 +167,7 @@ namespace Shared
             int level = 1,
             Func<string[][], List<int[]>, int, (bool, double)> bonusTriggerAndWin = null)
         {
-            var rng = new Random(Guid.NewGuid().GetHashCode()); // Thread-safe random
+            var rng = new Random();
             double totalWin = 0;
             int winCount = 0;
             int totalSimulatedFreeSpins = 0;
@@ -176,13 +176,6 @@ namespace Shared
 
             // Use symbol configurations from GameConfig instead of hardcoding
             var symbolConfigs = config.Symbols;
-
-            // Pre-allocate grid for better performance
-            var grid = new string[5][];
-            for (int i = 0; i < 5; i++)
-            {
-                grid[i] = new string[3];
-            }
 
             for (int spin = 0; spin < spins; spin++)
             {
@@ -193,12 +186,13 @@ namespace Shared
                     totalSimulatedFreeSpins++;
                 }
 
-                SpinReelsOptimized(set.Reels, rng, grid);
+                var grid = SpinReels(set.Reels, rng);
                 double lineWin = EvaluatePaylinesOptimized(grid, paylines, symbolConfigs);
                 double wildWin = EvaluateWildLineWinsOptimized(grid, paylines, symbolConfigs);
-                double scatterWin = EvaluateScattersOptimized(grid, betAmount, out int scatterCount, symbolConfigs);
+                double scatterWin = EvaluateScatters(grid, betAmount, out int scatterCount, symbolConfigs);
 
-                double totalSpinWin = (lineWin + wildWin) * (isFreeSpin ? 3 : 1) + scatterWin;
+                // Apply free spin tripling rule: Wins are tripled on free spins (except free spins or amounts won in bonus games)
+                double totalSpinWin = (lineWin + wildWin + scatterWin) * (isFreeSpin ? 3 : 1);
 
                 // Handle bonus games
                 if (bonusTriggerAndWin != null)
@@ -222,28 +216,31 @@ namespace Shared
             return (expectedRtp, estimatedHitRate);
         }
 
-        // Optimized version that reuses the grid array
-        private static void SpinReelsOptimized(List<List<string>> reels, Random rng, string[][] grid)
+        // Helper methods for simulation - Updated to use same logic as SlotEngine
+        private static string[][] SpinReels(List<List<string>> reels, Random rng)
         {
+            var result = new string[5][];
             for (int col = 0; col < 5; col++)
             {
+                result[col] = new string[3];
+
                 // Pick a random start position (like real slot reels)
                 int startPos = rng.Next(reels[col].Count);
-                
+
                 // Take the next 3 symbols from that position (wrapping if needed)
                 for (int row = 0; row < 3; row++)
                 {
                     int pos = (startPos + row) % reels[col].Count;
-                    grid[col][row] = reels[col][pos];
+                    result[col][row] = reels[col][pos];
                 }
             }
+            return result;
         }
 
-        // Optimized version that reduces allocations
         private static double EvaluatePaylinesOptimized(string[][] grid, List<int[]> paylines, Dictionary<string, SymbolConfig> symbolConfigs)
         {
             double win = 0;
-            var counted = new HashSet<string>();
+            var paylineWins = new Dictionary<string, Dictionary<string, int>>(); // payline -> symbol -> highest count
 
             foreach (var line in paylines)
             {
@@ -254,11 +251,11 @@ namespace Shared
                 for (int col = 0; col < 5; col++)
                 {
                     string symbol = grid[col][line[col]];
-                    
+
                     // Skip if symbol is not in configuration
                     if (!symbolConfigs.ContainsKey(symbol))
                         break;
-                        
+
                     bool isWild = symbolConfigs[symbol].IsWild;
 
                     if (col == 0)
@@ -271,9 +268,10 @@ namespace Shared
                     }
                     else
                     {
-                        if (symbol == baseSymbol || (isWild && !symbolConfigs[baseSymbol].IsScatter && !symbolConfigs[baseSymbol].IsBonus))
+                        // FIXED: Only allow exact symbol matches, no wild substitution in EvaluatePaylinesOptimized
+                        // Wild combinations should be handled exclusively by EvaluateWildLineWinsOptimized
+                        if (symbol == baseSymbol)
                         {
-                            if (isWild) wildUsed = true;
                             matchCount++;
                         }
                         else break;
@@ -282,34 +280,34 @@ namespace Shared
 
                 if (matchCount >= 3 && symbolConfigs.ContainsKey(baseSymbol) && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double basePayout))
                 {
-                    string key = $"{baseSymbol}-{matchCount}-{string.Join(",", line)}";
+                    string paylineKey = string.Join(",", line);
 
-                    // Check if we already have a higher paying combination for this symbol
-                    var existingKeys = counted.Where(k => k.StartsWith($"{baseSymbol}-")).ToList();
-                    bool hasHigherPayout = false;
-                    
-                    foreach (var existingKey in existingKeys)
+                    // RULE 1: Sum all payline wins for same symbol across different paylines
+                    // RULE 2: For same payline, only consider the highest count for this symbol on this specific payline
+
+                    // Check if we already have a higher count for this symbol on this specific payline
+                    if (!paylineWins.ContainsKey(paylineKey))
+                        paylineWins[paylineKey] = new Dictionary<string, int>();
+
+                    if (!paylineWins[paylineKey].ContainsKey(baseSymbol) || paylineWins[paylineKey][baseSymbol] < matchCount)
                     {
-                        var parts = existingKey.Split('-');
-                        if (parts.Length >= 2 && int.TryParse(parts[1], out int existingCount))
-                        {
-                            if (existingCount >= matchCount)
-                            {
-                                hasHigherPayout = true;
-                                break;
-                            }
-                        }
+                        // Update to the higher count for this symbol on this payline
+                        paylineWins[paylineKey][baseSymbol] = matchCount;
                     }
-                    
-                    if (!hasHigherPayout)
+                }
+            }
+
+            // Now sum up all the wins across all paylines
+            foreach (var paylineEntry in paylineWins)
+            {
+                foreach (var symbolEntry in paylineEntry.Value)
+                {
+                    string symbol = symbolEntry.Key;
+                    int count = symbolEntry.Value;
+
+                    if (symbolConfigs[symbol].Payouts.TryGetValue(count, out double payout))
                     {
-                        // Remove any existing lower paying combinations for this symbol
-                        counted.RemoveWhere(k => k.StartsWith($"{baseSymbol}-"));
-                        
-                        // Symbol payouts are static (don't scale with level)
-                        double payout = basePayout;
                         win += payout;
-                        counted.Add(key);
                     }
                 }
             }
@@ -323,48 +321,87 @@ namespace Shared
 
             foreach (var line in paylines)
             {
-                int count = 0;
-                
+                int wildCount = 0;
+                int symbolCount = 0;
+                string symbolType = null;
+                bool hasSymbols = false;
+
+                // Count wilds and symbols separately
                 for (int col = 0; col < 5; col++)
                 {
                     int row = line[col];
                     string symbol = grid[col][row];
 
-                    if (symbol == "SYM1")
+                    if (symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsWild)
                     {
-                        count++;
+                        wildCount++;
+                    }
+                    else if (symbolConfigs.ContainsKey(symbol) && !symbolConfigs[symbol].IsWild && !symbolConfigs[symbol].IsScatter && !symbolConfigs[symbol].IsBonus)
+                    {
+                        // Regular symbol
+                        if (symbolType == null)
+                        {
+                            symbolType = symbol;
+                            symbolCount = 1;
+                            hasSymbols = true;
+                        }
+                        else if (symbol == symbolType)
+                        {
+                            symbolCount++;
+                        }
+                        else
+                        {
+                            // Different symbol, break the line
+                            break;
+                        }
                     }
                     else
+                    {
+                        // Invalid symbol, break the line
                         break;
+                    }
                 }
 
-                if (count >= 2 && symbolConfigs.ContainsKey("SYM1") && symbolConfigs["SYM1"].Payouts.TryGetValue(count, out double basePayout))
+                // FIXED: Only process this payline if it actually contains wilds
+                if (wildCount == 0)
                 {
-                    // Symbol payouts are static (don't scale with level)
-                    double payout = basePayout;
-                    wildWin += payout;
+                    continue; // Skip this payline - no wilds to process
                 }
+
+                // NEW RULE 3: Compare wild-only vs symbol+wild wins, take the highest
+                double wildOnlyPayout = 0;
+                double symbolWithWildPayout = 0;
+
+                // Calculate wild-only payout
+                // Find any wild symbol to use for wild-only payouts
+                var wildSymbol = symbolConfigs.FirstOrDefault(kvp => kvp.Value.IsWild).Key;
+                if (wildCount >= 2 && wildSymbol != null && symbolConfigs[wildSymbol].Payouts.TryGetValue(wildCount, out double wildPayout))
+                {
+                    wildOnlyPayout = wildPayout;
+                }
+
+                // Calculate symbol+wild payout
+                if (hasSymbols && symbolType != null && symbolCount >= 3 && symbolConfigs.ContainsKey(symbolType))
+                {
+                    int totalCount = symbolCount + wildCount;
+                    if (symbolConfigs[symbolType].Payouts.TryGetValue(totalCount, out double symbolPayout))
+                    {
+                        symbolWithWildPayout = symbolPayout;
+                    }
+                }
+
+                // Take the higher payout
+                double payout = Math.Max(wildOnlyPayout, symbolWithWildPayout);
+                wildWin += payout;
             }
 
             return wildWin;
         }
 
-        private static double EvaluateScattersOptimized(string[][] grid, int betAmount, out int scatterCount, Dictionary<string, SymbolConfig> symbolConfigs)
+        private static double EvaluateScatters(string[][] grid, int betAmount, out int scatterCount, Dictionary<string, SymbolConfig> symbolConfigs)
         {
-            scatterCount = 0;
-            
-            // Count scatters manually for better performance
-            for (int col = 0; col < 5; col++)
-            {
-                for (int row = 0; row < 3; row++)
-                {
-                    string symbol = grid[col][row];
-                    if (symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsScatter)
-                    {
-                        scatterCount++;
-                    }
-                }
-            }
+            scatterCount = grid.SelectMany(col => col)
+                               .Count(sym => symbolConfigs.ContainsKey(sym) && symbolConfigs[sym].IsScatter);
 
             double multiplier = 0;
             int freeSpinsAwarded = 0;
@@ -393,4 +430,4 @@ namespace Shared
             return scatterWin;
         }
     }
-} 
+}
