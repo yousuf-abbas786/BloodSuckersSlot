@@ -11,6 +11,18 @@ namespace BloodSuckersSlot.Api.Controllers
     public static class SpinLogicHelper
     {
         private static readonly Random _rng = new();
+        
+        // OFFICIAL BLOODSUCKERS WILD PAYTABLE
+        // Wild-of-a-kind pays from 2 in a row with specific values:
+        // 5 wilds: 7500 × line bet, 4 wilds: 2000 × line bet, 3 wilds: 200 × line bet, 2 wilds: 5 × line bet
+        private static readonly Dictionary<int, double> WildPaytable = new()
+        {
+            { 2, 5.0 },
+            { 3, 200.0 },
+            { 4, 2000.0 },
+            { 5, 7500.0 }
+        };
+        
         private static int spinCounter = 0;
         private static int _spinsAboveTarget = 0;
         private static int _spinsBelowTarget = 0;
@@ -25,6 +37,42 @@ namespace BloodSuckersSlot.Api.Controllers
         private static int _rtpMomentum = 0;
         private static double _lastRtp = 0;
         private static bool _isSimulationMode = false;
+
+        // OFFICIAL BLOODSUCKERS MALFUNCTION RULE
+        // Any malfunction voids all pays and plays
+        private static bool DetectMalfunction(string[][] grid, Dictionary<string, SymbolConfig> symbolConfigs)
+        {
+            try
+            {
+                // Check for invalid symbols in grid
+                for (int col = 0; col < 5; col++)
+                {
+                    for (int row = 0; row < 3; row++)
+                    {
+                        string symbol = grid[col][row];
+                        if (string.IsNullOrEmpty(symbol) || !symbolConfigs.ContainsKey(symbol))
+                        {
+                            Console.WriteLine($"MALFUNCTION DETECTED: Invalid symbol '{symbol}' at position ({col},{row})");
+                            return true;
+                        }
+                    }
+                }
+                
+                // Check for null or invalid symbol configurations
+                if (symbolConfigs == null || symbolConfigs.Count == 0)
+                {
+                    Console.WriteLine("MALFUNCTION DETECTED: Invalid symbol configuration");
+                    return true;
+                }
+                
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"MALFUNCTION DETECTED: Exception during grid validation: {ex.Message}");
+                return true;
+            }
+        }
 
         // FIXED: Remove hardcoded symbol configs - use GameConfig.Symbols like original SlotEngine
 
@@ -109,6 +157,29 @@ namespace BloodSuckersSlot.Api.Controllers
 
             var grid = SpinReels(chosenSet.Reels);
             var winningLines = new List<WinningLine>();
+
+            // OFFICIAL BLOODSUCKERS MALFUNCTION RULE: Check for malfunctions before processing
+            if (DetectMalfunction(grid, config.Symbols))
+            {
+                Console.WriteLine("MALFUNCTION: All pays and plays are voided!");
+                return (new SpinResult
+                {
+                    TotalWin = 0,
+                    LineWin = 0,
+                    WildWin = 0,
+                    ScatterWin = 0,
+                    BonusWin = 0,
+                    ScatterCount = 0,
+                    BonusLog = "MALFUNCTION: All pays voided",
+                    IsFreeSpin = isFreeSpin,
+                    BonusTriggered = false,
+                    FreeSpinsRemaining = _freeSpinsRemaining,
+                    FreeSpinsAwarded = _freeSpinsAwarded,
+                    TotalFreeSpinsAwarded = _totalFreeSpinsAwarded,
+                    TotalBonusesTriggered = _totalBonusesTriggered,
+                    SpinType = "MALFUNCTION"
+                }, grid, chosenSet, new List<WinningLine>());
+            }
 
             // Debug: Show the grid layout
             Console.WriteLine("DEBUG: Grid layout:");
@@ -279,7 +350,9 @@ namespace BloodSuckersSlot.Api.Controllers
             out List<WinningLine> winningLines)
         {
             double win = 0;
-            var paylineWins = new Dictionary<string, Dictionary<string, int>>(); // payline -> symbol -> highest count
+            // FIXED: Use paylineIndex as key to properly distinguish between different paylines
+            // This ensures the "Highest Only Rule" is applied per payline, not across all paylines
+            var paylineWins = new Dictionary<int, Dictionary<string, int>>(); // paylineIndex -> symbol -> highest count
             winningLines = new List<WinningLine>();
 
             for (int paylineIndex = 0; paylineIndex < paylines.Count; paylineIndex++)
@@ -346,19 +419,17 @@ namespace BloodSuckersSlot.Api.Controllers
 
                 if (matchCount >= 3 && symbolConfigs.ContainsKey(baseSymbol) && symbolConfigs[baseSymbol].Payouts.TryGetValue(matchCount, out double basePayout))
                 {
-                    string paylineKey = string.Join(",", line);
-                    
-                    // RULE 1: Sum all payline wins for same symbol across different paylines
-                    // RULE 2: For same payline, only consider the highest count for this symbol on this specific payline
+                    // FIXED: Use paylineIndex to properly distinguish between different paylines
+                    // This ensures each payline is evaluated independently for the "Highest Only Rule"
                     
                     // Check if we already have a higher count for this symbol on this specific payline
-                    if (!paylineWins.ContainsKey(paylineKey))
-                        paylineWins[paylineKey] = new Dictionary<string, int>();
+                    if (!paylineWins.ContainsKey(paylineIndex))
+                        paylineWins[paylineIndex] = new Dictionary<string, int>();
                     
-                    if (!paylineWins[paylineKey].ContainsKey(baseSymbol) || paylineWins[paylineKey][baseSymbol] < matchCount)
+                    if (!paylineWins[paylineIndex].ContainsKey(baseSymbol) || paylineWins[paylineIndex][baseSymbol] < matchCount)
                     {
                         // Update to the higher count for this symbol on this payline
-                        paylineWins[paylineKey][baseSymbol] = matchCount;
+                        paylineWins[paylineIndex][baseSymbol] = matchCount;
                     }
                 }
                 else
@@ -374,8 +445,8 @@ namespace BloodSuckersSlot.Api.Controllers
             // Now sum up all the wins across all paylines and create winning lines
             foreach (var paylineEntry in paylineWins)
             {
-                string paylineKey = paylineEntry.Key;
-                var payline = paylineKey.Split(',').Select(int.Parse).ToArray();
+                int paylineIndex = paylineEntry.Key;
+                var payline = paylines[paylineIndex]; // Get the actual payline from the original list
                 
                 foreach (var symbolEntry in paylineEntry.Value)
                 {
@@ -402,17 +473,17 @@ namespace BloodSuckersSlot.Api.Controllers
                             fullPaylinePath.Add(new Position { Col = col, Row = payline[col] });
                         }
                         
-                        // Create winning line with proper data
-                        winningLines.Add(new WinningLine
-                        {
-                            Positions = new List<Position>(winningPositions),
-                            Symbol = symbol,
-                            Count = count,
-                            WinAmount = payout,
-                            PaylineType = "line",
-                            PaylineIndex = Array.IndexOf(paylines.ToArray(), payline),
-                            FullPaylinePath = fullPaylinePath
-                        });
+                                                 // Create winning line with proper data
+                         winningLines.Add(new WinningLine
+                         {
+                             Positions = new List<Position>(winningPositions),
+                             Symbol = symbol,
+                             Count = count,
+                             WinAmount = payout,
+                             PaylineType = "line",
+                             PaylineIndex = paylineIndex, // Use the actual payline index
+                             FullPaylinePath = fullPaylinePath
+                         });
                     }
                 }
             }
@@ -485,10 +556,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 string winningType = "";
                 var winningPositions = new List<Position>();
 
-                // Calculate wild-only payout
-                // Find any wild symbol to use for wild-only payouts
-                var wildSymbol = symbolConfigs.FirstOrDefault(kvp => kvp.Value.IsWild).Key;
-                if (wildCount >= 2 && wildSymbol != null && symbolConfigs[wildSymbol].Payouts.TryGetValue(wildCount, out double wildPayout))
+                // OFFICIAL BLOODSUCKERS RULE: Wild-of-a-kind pays from 2 in a row using specific wild paytable
+                if (wildCount >= 2 && WildPaytable.TryGetValue(wildCount, out double wildPayout))
                 {
                     wildOnlyPayout = wildPayout;
                 }
@@ -519,17 +588,17 @@ namespace BloodSuckersSlot.Api.Controllers
                         fullPaylinePath.Add(new Position { Col = col, Row = line[col] });
                     }
                     
-                    // Create winning line
-                    winningLines.Add(new WinningLine
-                    {
-                        Positions = winningPositions,
-                        Symbol = wildSymbol,
-                        Count = wildCount,
-                        WinAmount = wildOnlyPayout,
-                        PaylineType = "wild",
-                        PaylineIndex = paylineIndex,
-                        FullPaylinePath = fullPaylinePath
-                    });
+                                            // Create winning line
+                        winningLines.Add(new WinningLine
+                        {
+                            Positions = winningPositions,
+                            Symbol = "WILD", // Use generic wild symbol name
+                            Count = wildCount,
+                            WinAmount = wildOnlyPayout,
+                            PaylineType = "wild",
+                            PaylineIndex = paylineIndex,
+                            FullPaylinePath = fullPaylinePath
+                        });
                 }
                 else if (symbolWithWildPayout > 0)
                 {
@@ -698,7 +767,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 for (int col = 0; col < 5; col++)
                 {
                     string symbol = grid[col][line[col]];
-                    if (symbol == "SYM2") // Bonus symbol
+                    // OFFICIAL RULE: Check if symbol is bonus symbol using configuration
+                    if (symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsBonus)
                     {
                         count++;
                         bonusPositions.Add(new Position { Col = col, Row = line[col] });
