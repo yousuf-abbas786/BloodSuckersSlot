@@ -563,10 +563,12 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
 
                 // Calculate symbol+wild payout
-                if (hasSymbols && symbolType != null && symbolCount >= 3 && symbolConfigs.ContainsKey(symbolType))
+                // FIXED: Allow wild substitution even with 1 symbol if total count meets minimum requirement
+                if (hasSymbols && symbolType != null && symbolConfigs.ContainsKey(symbolType))
                 {
                     int totalCount = symbolCount + wildCount;
-                    if (symbolConfigs[symbolType].Payouts.TryGetValue(totalCount, out double symbolPayout))
+                    // Check if total count meets minimum requirement for this symbol (usually 3)
+                    if (totalCount >= 3 && symbolConfigs[symbolType].Payouts.TryGetValue(totalCount, out double symbolPayout))
                     {
                         symbolWithWildPayout = symbolPayout;
                     }
