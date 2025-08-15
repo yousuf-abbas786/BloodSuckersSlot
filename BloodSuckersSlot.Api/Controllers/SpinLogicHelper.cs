@@ -507,6 +507,10 @@ namespace BloodSuckersSlot.Api.Controllers
                 var symbolPositions = new List<Position>();
                 
                 // Count wilds and symbols separately
+                // OFFICIAL BLOODSUCKERS RULE: Wild-only wins must start from leftmost reel (column 0)
+                bool wildOnlyStartsFromLeftmost = false;
+                int firstWildColumn = -1;
+                
                 for (int col = 0; col < 5; col++)
                 {
                     int row = line[col];
@@ -514,6 +518,10 @@ namespace BloodSuckersSlot.Api.Controllers
 
                     if (symbolConfigs.ContainsKey(symbol) && symbolConfigs[symbol].IsWild)
                     {
+                        if (firstWildColumn == -1)
+                        {
+                            firstWildColumn = col; // Track the first wild position
+                        }
                         wildCount++;
                         wildPositions.Add(new Position { Col = col, Row = row });
                     }
@@ -543,6 +551,9 @@ namespace BloodSuckersSlot.Api.Controllers
                         break;
                     }
                 }
+                
+                // Check if wild-only win starts from leftmost reel
+                wildOnlyStartsFromLeftmost = (firstWildColumn == 0);
 
                 // FIXED: Only process this payline if it actually contains wilds
                 if (wildCount == 0)
@@ -557,9 +568,15 @@ namespace BloodSuckersSlot.Api.Controllers
                 var winningPositions = new List<Position>();
 
                 // OFFICIAL BLOODSUCKERS RULE: Wild-of-a-kind pays from 2 in a row using specific wild paytable
-                if (wildCount >= 2 && WildPaytable.TryGetValue(wildCount, out double wildPayout))
+                // BUT ONLY if wilds start from the leftmost reel (column 0)
+                if (wildCount >= 2 && wildOnlyStartsFromLeftmost && WildPaytable.TryGetValue(wildCount, out double wildPayout))
                 {
                     wildOnlyPayout = wildPayout;
+                    Console.WriteLine($"DEBUG: Wild-only win valid - {wildCount} wilds starting from leftmost reel, payout: {wildPayout}");
+                }
+                else if (wildCount >= 2 && !wildOnlyStartsFromLeftmost)
+                {
+                    Console.WriteLine($"DEBUG: Wild-only win INVALID - {wildCount} wilds don't start from leftmost reel (first wild at column {firstWildColumn})");
                 }
 
                 // Calculate symbol+wild payout
