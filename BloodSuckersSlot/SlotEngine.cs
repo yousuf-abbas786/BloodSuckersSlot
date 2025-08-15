@@ -1,6 +1,6 @@
 ﻿using System.Text;
 using Microsoft.AspNetCore.SignalR.Client;
-using BloodSuckersSlot.Api.Models;
+// Models now in Shared project
 using Shared;
 
 namespace BloodSuckersSlot

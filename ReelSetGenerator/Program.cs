@@ -45,6 +45,7 @@ namespace ReelSetGenerator
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>
             Host.CreateDefaultBuilder(args)
+
                 .ConfigureLogging(logging =>
                 {
                     logging.ClearProviders();

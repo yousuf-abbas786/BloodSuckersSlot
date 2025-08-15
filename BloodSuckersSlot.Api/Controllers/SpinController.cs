@@ -356,7 +356,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     },
                     rtp = actualRtp,
                     hitRate = actualHitRate,
-                    winningLines = winningLines ?? new List<BloodSuckersSlot.Api.Models.WinningLine>()
+                    winningLines = winningLines ?? new List<WinningLine>()
                 });
             }
             catch (Exception ex)
