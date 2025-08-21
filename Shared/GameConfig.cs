@@ -16,6 +16,17 @@ namespace Shared
         public double HitRateTolerance { get; set; } = 0.15; // ±15% tolerance around target
         public double MaxHitRatePerSet { get; set; } = 0.8; // Maximum hit rate allowed per reel set
         public double MinHitRatePerSet { get; set; } = 0.1; // Minimum hit rate allowed per reel set
+        
+        // NEW: Volatility Control Parameters
+        public double VolatilityThreshold { get; set; } = 2.0; // Threshold for high volatility detection
+        public double VolatilityRecoveryRate { get; set; } = 0.8; // How quickly to recover from high volatility
+        public int MaxRecentWinsForVolatility { get; set; } = 100; // Number of recent wins to track for volatility
+        
+        // NEW: Intelligent Selection Parameters
+        public double RtpWeightMultiplier { get; set; } = 0.5; // Weight for RTP in combined score
+        public double HitRateWeightMultiplier { get; set; } = 0.3; // Weight for hit rate in combined score
+        public double VolatilityWeightMultiplier { get; set; } = 0.2; // Weight for volatility in combined score
+        public int MaxCandidatesPerCategory { get; set; } = 20; // Maximum candidates per selection category
         // RTP Recovery Settings
         public double HighRtpThreshold { get; set; } = 1.05; // RTP > 105% triggers aggressive low RTP selection
         public double CriticalRtpThreshold { get; set; } = 1.20; // RTP > 120% triggers very aggressive low RTP selection

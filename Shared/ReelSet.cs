@@ -8,5 +8,6 @@ namespace Shared
         public double EstimatedHitRate { get; set; }
         public double RtpWeight { get; set; }
         public double HitWeight { get; set; }
+        public double CombinedWeight { get; set; } // Combined weight for intelligent selection
     }
 } 

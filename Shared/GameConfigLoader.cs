@@ -15,6 +15,17 @@ namespace Shared
             config.BaseBetForFreeSpins = configuration.GetValue<int>("GameConfig:BaseBetForFreeSpins", 25);
             config.MonteCarloSpins = configuration.GetValue<int>("GameConfig:MonteCarloSpins", 10000);
             
+            // Load volatility control parameters
+            config.VolatilityThreshold = configuration.GetValue<double>("GameConfig:VolatilityThreshold", 2.0);
+            config.VolatilityRecoveryRate = configuration.GetValue<double>("GameConfig:VolatilityRecoveryRate", 0.8);
+            config.MaxRecentWinsForVolatility = configuration.GetValue<int>("GameConfig:MaxRecentWinsForVolatility", 100);
+            
+            // Load intelligent selection parameters
+            config.RtpWeightMultiplier = configuration.GetValue<double>("GameConfig:RtpWeightMultiplier", 0.5);
+            config.HitRateWeightMultiplier = configuration.GetValue<double>("GameConfig:HitRateWeightMultiplier", 0.3);
+            config.VolatilityWeightMultiplier = configuration.GetValue<double>("GameConfig:VolatilityWeightMultiplier", 0.2);
+            config.MaxCandidatesPerCategory = configuration.GetValue<int>("GameConfig:MaxCandidatesPerCategory", 20);
+            
             // Load betting system properties
             configuration.Bind("GameConfig:MaxFreeSpinsPerSession", config.MaxFreeSpinsPerSession);
             configuration.Bind("GameConfig:BaseBetPerLevel", config.BaseBetPerLevel);
