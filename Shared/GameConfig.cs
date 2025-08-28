@@ -7,7 +7,7 @@ namespace Shared
     {
         // Core RTP and Hit Rate Targets
         public double RtpTarget { get; set; } = 0.88; // Default target RTP (88%)
-        public double TargetHitRate { get; set; } = 0.45; // Target hit rate (35%) - adjustable
+        public double TargetHitRate { get; set; } = 0.35; // Target hit rate (35%) - adjustable
         // RTP Control Parameters
         public double RtpTolerance { get; set; } = 0.05; // ±5% tolerance around target
         public double MaxRtpPerSet { get; set; } = 1.3; // Maximum RTP allowed per reel set
@@ -18,14 +18,14 @@ namespace Shared
         public double MinHitRatePerSet { get; set; } = 0.1; // Minimum hit rate allowed per reel set
         
         // NEW: Volatility Control Parameters
-        public double VolatilityThreshold { get; set; } = 2.0; // Threshold for high volatility detection
+        public double VolatilityThreshold { get; set; } = 2.5; // Threshold for high volatility detection
         public double VolatilityRecoveryRate { get; set; } = 0.8; // How quickly to recover from high volatility
         public int MaxRecentWinsForVolatility { get; set; } = 100; // Number of recent wins to track for volatility
         
         // NEW: Intelligent Selection Parameters
-        public double RtpWeightMultiplier { get; set; } = 0.5; // Weight for RTP in combined score
+        public double RtpWeightMultiplier { get; set; } = 0.4; // Weight for RTP in combined score
         public double HitRateWeightMultiplier { get; set; } = 0.3; // Weight for hit rate in combined score
-        public double VolatilityWeightMultiplier { get; set; } = 0.2; // Weight for volatility in combined score
+        public double VolatilityWeightMultiplier { get; set; } = 0.3; // Weight for volatility in combined score
         public int MaxCandidatesPerCategory { get; set; } = 20; // Maximum candidates per selection category
         // RTP Recovery Settings
         public double HighRtpThreshold { get; set; } = 1.05; // RTP > 105% triggers aggressive low RTP selection
@@ -70,7 +70,11 @@ namespace Shared
                 HighRtpThreshold = 1.10,
                 CriticalRtpThreshold = 1.25,
                 MaxRtpPerSet = 1.5,
-                MinRtpPerSet = 0.4
+                MinRtpPerSet = 0.4,
+                VolatilityThreshold = 3.0, // Higher threshold for high volatility
+                RtpWeightMultiplier = 0.4, // RTP has more influence
+                HitRateWeightMultiplier = 0.3,
+                VolatilityWeightMultiplier = 0.3
             };
         }
         public static GameConfig CreateLowVolatility()
@@ -84,7 +88,11 @@ namespace Shared
                 HighRtpThreshold = 1.03,
                 CriticalRtpThreshold = 1.15,
                 MaxRtpPerSet = 1.2,
-                MinRtpPerSet = 0.6
+                MinRtpPerSet = 0.6,
+                VolatilityThreshold = 2.0, // Lower threshold for low volatility
+                RtpWeightMultiplier = 0.4, // RTP has more influence
+                HitRateWeightMultiplier = 0.3,
+                VolatilityWeightMultiplier = 0.3
             };
         }
         public static GameConfig CreateBalanced()
@@ -98,7 +106,11 @@ namespace Shared
                 HighRtpThreshold = 1.05,
                 CriticalRtpThreshold = 1.20,
                 MaxRtpPerSet = 1.3,
-                MinRtpPerSet = 0.5
+                MinRtpPerSet = 0.5,
+                VolatilityThreshold = 2.5, // Balanced volatility threshold
+                RtpWeightMultiplier = 0.4, // RTP has more influence
+                HitRateWeightMultiplier = 0.3,
+                VolatilityWeightMultiplier = 0.3
             };
             
             // Initialize paylines and symbols

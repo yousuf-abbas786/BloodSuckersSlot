@@ -5,6 +5,12 @@ using System.Text;
 using Shared;
 using System.Threading;
 
+// UPDATED CONFIGURATION (Steps 1 & 2):
+// - VolatilityThreshold: Increased from 1.5 to 2.5 (allows more dramatic swings)
+// - RtpWeightMultiplier: Increased from 0.3 to 0.4 (RTP has more influence)
+// - HitRateWeightMultiplier: Decreased from 0.4 to 0.3 (less dominance)
+// - VolatilityWeightMultiplier: Kept at 0.3 (maintains volatility control)
+
 namespace BloodSuckersSlot.Api.Controllers
 {
     public static class SpinLogicHelper
@@ -97,6 +103,9 @@ namespace BloodSuckersSlot.Api.Controllers
             Console.WriteLine($"🎯 REEL SET SELECTION: Current RTP: {currentRtpBeforeSpin:P2}, Target: {config.RtpTarget:P2}");
             Console.WriteLine($"🎯 REEL SET SELECTION: Current Hit Rate: {currentHitRateBeforeSpin:P2}, Target: {config.TargetHitRate:P2}");
             Console.WriteLine($"🎯 REEL SET SELECTION: Chosen: {chosenSet.Name} | Expected RTP: {chosenSet.ExpectedRtp:P2} | Estimated Hit Rate: {chosenSet.EstimatedHitRate:P2}");
+            Console.WriteLine($"⚖️ WEIGHT CALCULATION: RTP Weight: {chosenSet.RtpWeight:F3} × {config.RtpWeightMultiplier:F1} = {chosenSet.RtpWeight * config.RtpWeightMultiplier:F3}");
+            Console.WriteLine($"⚖️ WEIGHT CALCULATION: Hit Rate Weight: {chosenSet.HitWeight:F3} × {config.HitRateWeightMultiplier:F1} = {chosenSet.HitWeight * config.HitRateWeightMultiplier:F3}");
+            Console.WriteLine($"⚖️ WEIGHT CALCULATION: Combined Weight: {chosenSet.CombinedWeight:F3}");
 
             var grid = SlotEvaluationService.SpinReels(chosenSet.Reels);
             var winningLines = new List<WinningLine>();
@@ -258,7 +267,11 @@ namespace BloodSuckersSlot.Api.Controllers
             Console.WriteLine($"Scatter Count This Spin: {scatterCount}");
             Console.WriteLine($"Total Free Spins Awarded So Far: {_totalFreeSpinsAwarded}");
             Console.WriteLine($"[HIT RATE] {_hitCount} / {spinCounter} spins ({(100.0 * _hitCount / spinCounter):F2}%)");
-            Console.WriteLine($"[VOLATILITY] Current: {currentVolatility:F4} | Recent wins: {_recentWins.Count}");
+            Console.WriteLine($"[VOLATILITY] Current: {currentVolatility:F4} | Threshold: {config.VolatilityThreshold:F1} | Recent wins: {_recentWins.Count}");
+            if (currentVolatility > config.VolatilityThreshold)
+            {
+                Console.WriteLine($"⚠️ HIGH VOLATILITY DETECTED: {currentVolatility:F2} > {config.VolatilityThreshold:F1} - Recovery mode activated");
+            }
             
             // FIXED: Add scatter and free spin debug info
             if (scatterCount >= 3)
