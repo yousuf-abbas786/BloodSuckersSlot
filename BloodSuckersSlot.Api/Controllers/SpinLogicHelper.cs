@@ -387,12 +387,12 @@ namespace BloodSuckersSlot.Api.Controllers
             else
                 _consecutiveHighRtpSpins = 0;
 
-                    // PHASE 1: Enhanced thresholds with recovery boost
-        bool needHigherRtp = currentRtp < config.RtpTarget * 0.95; // Below 95% of target - More sensitive
-        bool needLowerRtp = currentRtp > config.RtpTarget * 1.05; // Above 105% of target - More sensitive
-        bool needHigherHitRate = currentHitRate < config.TargetHitRate * 0.8; // Below 80% of target
-        bool needLowerHitRate = currentHitRate > config.TargetHitRate * 1.1; // Above 110% of target
-        bool needLowerVolatility = currentVolatility > config.VolatilityThreshold; // High volatility threshold
+            // PHASE 1: Enhanced thresholds with recovery boost - MORE AGGRESSIVE FOR WAVES
+            bool needHigherRtp = currentRtp < config.RtpTarget * 0.85; // Below 85% of target - More aggressive
+            bool needLowerRtp = currentRtp > config.RtpTarget * 1.15; // Above 115% of target - More aggressive
+            bool needHigherHitRate = currentHitRate < config.TargetHitRate * 0.8; // Below 80% of target
+            bool needLowerHitRate = currentHitRate > config.TargetHitRate * 1.1; // Above 110% of target
+            bool needLowerVolatility = currentVolatility > config.VolatilityThreshold; // High volatility threshold
             
             // PHASE 1: Recovery boost for consecutive low RTP spins
             bool recoveryBoost = _consecutiveLowRtpSpins >= 10; // Boost after 10 consecutive low RTP spins
@@ -585,11 +585,11 @@ namespace BloodSuckersSlot.Api.Controllers
                     candidateSets.AddRange(momentumCandidates);
             }
             
-            // PHASE 2: Add random volatility events for dynamic waves
+            // PHASE 2: Add random volatility events for dynamic waves - MORE FREQUENT FOR BETTER WAVES
             _spinCounter++;
             
-                         // Reduced random volatility events for more balanced waves
-             if (_spinCounter - _lastVolatilityEvent > 5 && _rng.Next(100) < 30) // 30% chance every spin after 5 (less frequent)
+            // Increased random volatility events for better wave patterns
+            if (_spinCounter - _lastVolatilityEvent > 3 && _rng.Next(100) < 50) // 50% chance every spin after 3 (more frequent)
             {
                 _lastVolatilityEvent = _spinCounter;
                 bool isHighVolatility = _rng.Next(2) == 0;
@@ -598,7 +598,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     Console.WriteLine($"⚡ HIGH VOLATILITY EVENT: Forcing high RTP selection for waves");
                     var highVolCandidates = reelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.3 && r.ExpectedRtp <= config.RtpTarget * 2.0) // 114.4% to 176% - More controlled range
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2 && r.ExpectedRtp <= config.RtpTarget * 3.0) // 105.6% to 264% - Wider range for more variety
                         .OrderByDescending(r => r.ExpectedRtp)
                         .Take(config.MaxCandidatesPerCategory * 2)
                         .ToList();
@@ -613,7 +613,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     Console.WriteLine($"⚡ LOW VOLATILITY EVENT: Forcing low RTP selection for waves");
                     var lowVolCandidates = reelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.3 && r.ExpectedRtp <= config.RtpTarget * 0.7) // 26.4% to 61.6% - More controlled range
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.2 && r.ExpectedRtp <= config.RtpTarget * 0.8) // 17.6% to 70.4% - Wider range for more variety
                         .OrderBy(r => r.ExpectedRtp) // Prefer lowest RTP for maximum contrast
                         .Take(config.MaxCandidatesPerCategory * 2)
                         .ToList();
@@ -626,13 +626,13 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
             }
             
-                         // Reduced dry spells and hot streaks for more balanced excitement
-             if (_spinCounter - _lastDrySpellEvent > 8 && _rng.Next(100) < 25) // 25% chance every spin after 8 (less frequent)
+            // Increased dry spells and hot streaks for more excitement
+            if (_spinCounter - _lastDrySpellEvent > 6 && _rng.Next(100) < 35) // 35% chance every spin after 6 (more frequent)
             {
                 _lastDrySpellEvent = _spinCounter;
                 Console.WriteLine($"🌵 DRY SPELL: Creating intentional low-win period for gaps");
                 var drySpellCandidates = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.2 && r.ExpectedRtp <= config.RtpTarget * 0.6) // 17.6% to 52.8% - More controlled range
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.1 && r.ExpectedRtp <= config.RtpTarget * 0.7) // 8.8% to 61.6% - Wider range for more variety
                     .OrderBy(r => r.ExpectedRtp) // Prefer lowest RTP for maximum dry spell effect
                     .Take(config.MaxCandidatesPerCategory * 2)
                     .ToList();
@@ -644,88 +644,74 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
             }
             
-                         if (_spinCounter - _lastHotStreakEvent > 12 && _rng.Next(100) < 20) // 20% chance every spin after 12 (less frequent)
+            if (_spinCounter - _lastHotStreakEvent > 8 && _rng.Next(100) < 30) // 30% chance every spin after 8 (more frequent)
             {
                 _lastHotStreakEvent = _spinCounter;
                 Console.WriteLine($"🔥 HOT STREAK: Creating intentional high-win period for excitement");
                 var hotStreakCandidates = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.5 && r.ExpectedRtp <= config.RtpTarget * 2.5) // 132% to 220% - More controlled range
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.3 && r.ExpectedRtp <= config.RtpTarget * 3.5) // 114.4% to 308% - Wider range for more variety
                     .OrderByDescending(r => r.ExpectedRtp) // Prefer highest RTP for maximum hot streak effect
                     .Take(config.MaxCandidatesPerCategory * 2)
                     .ToList();
                 
-                            if (hotStreakCandidates.Any())
-            {
-                candidateSets.AddRange(hotStreakCandidates);
-                Console.WriteLine($"🔥 ULTRA HOT STREAK: Selected {hotStreakCandidates.Count} candidates with RTP {hotStreakCandidates.Min(r => r.ExpectedRtp):P0} to {hotStreakCandidates.Max(r => r.ExpectedRtp):P0}");
+                if (hotStreakCandidates.Any())
+                {
+                    candidateSets.AddRange(hotStreakCandidates);
+                    Console.WriteLine($"🔥 ULTRA HOT STREAK: Selected {hotStreakCandidates.Count} candidates with RTP {hotStreakCandidates.Min(r => r.ExpectedRtp):P0} to {hotStreakCandidates.Max(r => r.ExpectedRtp):P0}");
+                }
             }
-        }
 
-                 // ULTRA AGGRESSIVE FORCED WAVE PATTERN: Override everything for guaranteed dramatic waves
-         _waveCounter++;
-         
-         if (_waveCounter >= 3) // Every 3 spins (less frequent for more natural waves)
-         {
-             _waveCounter = 0;
-             _forceHighRtp = !_forceHighRtp; // Alternate between high and low
-             
-             // CLEAR ALL EXISTING CANDIDATES - Force wave pattern to override everything
-             candidateSets.Clear();
-             
-             if (_forceHighRtp)
-             {
-                 Console.WriteLine($"🌊 FORCED WAVE: HIGH RTP PHASE - Creating wave above target");
-                 var forcedHighCandidates = reelSets
-                     .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2 && r.ExpectedRtp <= config.RtpTarget * 1.8) // 105.6% to 158.4% - More controlled range
-                     .OrderByDescending(r => r.ExpectedRtp)
-                     .Take(config.MaxCandidatesPerCategory * 3)
-                     .ToList();
-                 
-                 if (forcedHighCandidates.Any())
-                 {
-                     candidateSets.AddRange(forcedHighCandidates);
-                     Console.WriteLine($"🌊 FORCED HIGH WAVE: Selected {forcedHighCandidates.Count} candidates with RTP {forcedHighCandidates.Min(r => r.ExpectedRtp):P0} to {forcedHighCandidates.Max(r => r.ExpectedRtp):P0}");
-                 }
-                 else
-                 {
-                     // Fallback: use any high RTP reel sets within reasonable range
-                     var fallbackHigh = reelSets.Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1).OrderByDescending(r => r.ExpectedRtp).Take(10).ToList();
-                     candidateSets.AddRange(fallbackHigh);
-                     Console.WriteLine($"🌊 FORCED HIGH WAVE FALLBACK: Selected {fallbackHigh.Count} candidates");
-                 }
-             }
-             else
-             {
-                 Console.WriteLine($"🌊 FORCED WAVE: LOW RTP PHASE - Creating wave below target");
-                 var forcedLowCandidates = reelSets
-                     .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.4 && r.ExpectedRtp <= config.RtpTarget * 0.8) // 35.2% to 70.4% - More controlled range
-                     .OrderBy(r => r.ExpectedRtp)
-                     .Take(config.MaxCandidatesPerCategory * 3)
-                     .ToList();
-                 
-                 if (forcedLowCandidates.Any())
-                 {
-                     candidateSets.AddRange(forcedLowCandidates);
-                     Console.WriteLine($"🌊 FORCED LOW WAVE: Selected {forcedLowCandidates.Count} candidates with RTP {forcedLowCandidates.Min(r => r.ExpectedRtp):P0} to {forcedLowCandidates.Max(r => r.ExpectedRtp):P0}");
-                 }
-                 else
-                 {
-                     // Fallback: use any low RTP reel sets within reasonable range
-                     var fallbackLow = reelSets.Where(r => r.ExpectedRtp <= config.RtpTarget * 0.9).OrderBy(r => r.ExpectedRtp).Take(10).ToList();
-                     candidateSets.AddRange(fallbackLow);
-                     Console.WriteLine($"🌊 FORCED LOW WAVE FALLBACK: Selected {fallbackLow.Count} candidates");
-                 }
-             }
-             
-             // Skip all other logic and return immediately
-             var uniqueCandidates = candidateSets.Distinct().ToList();
-             return ChooseWeightedByCombinedScore(uniqueCandidates);
-         }
- 
-         // Remove duplicates and select using weighted random selection
-         candidateSets = candidateSets.Distinct().ToList();
-         return ChooseWeightedByCombinedScore(candidateSets);
-         }
+            // ULTRA AGGRESSIVE FORCED WAVE PATTERN: Override everything for guaranteed dramatic waves
+            _waveCounter++;
+            
+            if (_waveCounter >= 2) // Every 2 spins (more frequent for better waves)
+            {
+                _waveCounter = 0;
+                _forceHighRtp = !_forceHighRtp; // Alternate between high and low
+                
+                // CLEAR ALL EXISTING CANDIDATES - Force wave pattern to override everything
+                candidateSets.Clear();
+                
+                if (_forceHighRtp)
+                {
+                    Console.WriteLine($"🌊 FORCED WAVE: HIGH RTP PHASE - Creating wave above target");
+                    var forcedHighCandidates = reelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1 && r.ExpectedRtp <= config.RtpTarget * 2.0) // 96.8% to 176% - Wider range for more variety
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(config.MaxCandidatesPerCategory * 3)
+                        .ToList();
+                    
+                    if (forcedHighCandidates.Any())
+                    {
+                        candidateSets.AddRange(forcedHighCandidates);
+                        Console.WriteLine($"🌊 FORCED HIGH WAVE: Selected {forcedHighCandidates.Count} candidates with RTP {forcedHighCandidates.Min(r => r.ExpectedRtp):P0} to {forcedHighCandidates.Max(r => r.ExpectedRtp):P0}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"🌊 FORCED WAVE: LOW RTP PHASE - Creating wave below target");
+                    var forcedLowCandidates = reelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.3 && r.ExpectedRtp <= config.RtpTarget * 0.9) // 26.4% to 79.2% - Wider range for more variety
+                        .OrderBy(r => r.ExpectedRtp)
+                        .Take(config.MaxCandidatesPerCategory * 3)
+                        .ToList();
+                    
+                    if (forcedLowCandidates.Any())
+                    {
+                        candidateSets.AddRange(forcedLowCandidates);
+                        Console.WriteLine($"🌊 FORCED LOW WAVE: Selected {forcedLowCandidates.Count} candidates with RTP {forcedLowCandidates.Min(r => r.ExpectedRtp):P0} to {forcedLowCandidates.Max(r => r.ExpectedRtp):P0}");
+                    }
+                }
+                
+                // Skip all other logic and return immediately
+                var uniqueCandidates = candidateSets.Distinct().ToList();
+                return ChooseWeightedByCombinedScore(uniqueCandidates);
+            }
+
+            // Remove duplicates and select using weighted random selection
+            candidateSets = candidateSets.Distinct().ToList();
+            return ChooseWeightedByCombinedScore(candidateSets);
+        }
 
         // NEW: Volatility calculation based on recent win patterns
         private static double CalculateCurrentVolatility()
