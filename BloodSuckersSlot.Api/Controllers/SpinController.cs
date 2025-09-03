@@ -4,6 +4,7 @@ using MongoDB.Driver;
 using MongoDB.Bson;
 using Shared;
 using System.Text.Json;
+using System.Diagnostics;
 
 namespace BloodSuckersSlot.Api.Controllers
 {
@@ -14,11 +15,25 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly IMongoCollection<BsonDocument> _collection;
         private readonly ILogger<SpinController> _logger;
         private static GameConfig _config;
-        private static List<ReelSet> _allReelSets = new List<ReelSet>();
-        private static bool _isLoading = false;
-        private static bool _isLoaded = false;
-        private static int _totalReelSets = 0;
-        private static int _loadedCount = 0;
+        
+        // Lazy loading with RTP range caching
+        private static readonly Dictionary<string, List<ReelSet>> _rtpRangeCache = new();
+        private static readonly SemaphoreSlim _cacheLock = new(1);
+        private static readonly int _maxCacheSize = 10000; // Limit cache size
+        private static readonly int _maxReelSetsPerRange = 1000; // Limit reel sets per range
+        
+        // Memory monitoring
+        private static long _totalMemoryUsed = 0;
+        private static int _totalReelSetsLoaded = 0;
+        
+        // 🚀 SPIN SPEED OPTIMIZATIONS
+        private static readonly Dictionary<string, Task> _prefetchTasks = new();
+        private static readonly SemaphoreSlim _prefetchLock = new(1);
+        private static readonly int _prefetchRangeCount = 5; // Prefetch 5 RTP ranges
+        private static readonly double _prefetchRangeSize = 0.1; // 10% RTP range size
+        private static DateTime _lastPrefetchTime = DateTime.MinValue;
+        private static readonly TimeSpan _prefetchInterval = TimeSpan.FromSeconds(30); // Prefetch every 30 seconds
+
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger)
         {
             _logger = logger;
@@ -37,12 +52,15 @@ namespace BloodSuckersSlot.Api.Controllers
                 
                 _logger.LogInformation("✅ MongoDB connection established successfully");
                 
-                // Start loading reel sets if not already loaded
-                if (!_isLoaded && !_isLoading)
-                {
-                    _logger.LogInformation("🔄 Starting initial reel set loading...");
-                    _ = LoadAllReelSetsAsync();
-                }
+                // DISABLED: Old loading mechanism that loads all 100K reel sets
+                // _ = LoadAllReelSetsAsync();
+                
+                // ENABLED: Lazy loading - only load reel sets when needed
+                _logger.LogInformation("🚀 LAZY LOADING ENABLED - No reel sets loaded at startup");
+                _logger.LogInformation("💾 MEMORY USAGE: Starting with minimal memory footprint");
+                
+                // Create indexes for optimal performance
+                CreateIndexesAsync().Wait();
             }
             catch (Exception ex)
             {
@@ -51,237 +69,267 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
-        private async Task LoadAllReelSetsAsync()
+        // REMOVED: Old LoadAllReelSetsAsync method - replaced with lazy loading
+        // This method was loading all 100K reel sets into memory, causing 23+ GB usage
+
+        private async Task CreateIndexesAsync()
         {
-            if (_isLoading || _isLoaded) 
-            {
-                _logger.LogInformation("LoadAllReelSetsAsync skipped - already loading or loaded");
-                return;
-            }
-            
-            _isLoading = true;
-            _loadedCount = 0;
-            _logger.LogInformation("🔄 LoadAllReelSetsAsync started - setting isLoading=true");
-            var startTime = DateTime.UtcNow;
-            
             try
             {
-                if (_collection == null)
+                var indexKeys = new List<CreateIndexModel<BsonDocument>>
                 {
-                    _logger.LogWarning("❌ Cannot load reel sets - MongoDB collection is null");
-                    _isLoading = false;
-                    _isLoaded = false;
-                    return;
-                }
+                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp")),
+                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("estimatedHitRate")),
+                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("tag")),
+                    // Compound index for efficient RTP range queries
+                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Combine(
+                        Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp"),
+                        Builders<BsonDocument>.IndexKeys.Ascending("estimatedHitRate")
+                    )),
+                    // Compound index for efficient filtering
+                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Combine(
+                        Builders<BsonDocument>.IndexKeys.Ascending("tag"),
+                        Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp")
+                    ))
+                };
                 
-                _logger.LogInformation("Starting aggressive multi-threaded parallel batch fetching from MongoDB...");
-                
-                // Get total count first
-                _totalReelSets = (int)await _collection.CountDocumentsAsync(new BsonDocument());
-                int batchSize = 10000; // Reduced to 10,000 for more granular progress
-                int numThreads = 16; // Increased from Environment.ProcessorCount to 16 threads
-                int numBatches = (_totalReelSets + batchSize - 1) / batchSize;
-                
-                _logger.LogInformation($"Total reel sets: {_totalReelSets:N0}, Batch size: {batchSize:N0}, Number of batches: {numBatches}, Threads: {numThreads}");
-                
-                var tasks = new List<Task<List<ReelSet>>>();
-                var allReelSets = new List<ReelSet>(_totalReelSets);
-                var loadedCount = 0;
-                var lockObj = new object();
-                var completedBatches = 0;
-                var lastProgressTime = startTime;
-                
-                // Limit concurrent operations to avoid overwhelming MongoDB
-                var semaphore = new SemaphoreSlim(numThreads);
-                
-                for (int i = 0; i < numBatches; i++)
-                {
-                    int skip = i * batchSize;
-                    int limit = Math.Min(batchSize, _totalReelSets - skip);
-                    int batchIndex = i;
-                    tasks.Add(Task.Run(async () =>
-                    {
-                        await semaphore.WaitAsync();
-                        try
-                        {
-                            var batchStartTime = DateTime.UtcNow;
-                            _logger.LogInformation($"Starting batch {batchIndex + 1}/{numBatches} (skip: {skip:N0}, limit: {limit:N0}) at {batchStartTime:HH:mm:ss}");
-                            
-                            var batch = await _collection.Find(new BsonDocument())
-                                .Skip(skip)
-                                .Limit(limit)
-                                .ToListAsync();
-                            
-                            var batchEndTime = DateTime.UtcNow;
-                            var batchDuration = (batchEndTime - batchStartTime).TotalSeconds;
-                            _logger.LogInformation($"Batch {batchIndex + 1} fetched {batch.Count:N0} documents in {batchDuration:F2}s at {batchEndTime:HH:mm:ss}");
-                            
-                            var reelSets = batch.Select(doc => new ReelSet
-                            {
-                                Name = doc.GetValue("name", "").AsString,
-                                Reels = doc["reels"].AsBsonArray
-                                    .Select(col => col.AsBsonArray.Select(s => s.AsString).ToList()).ToList(),
-                                ExpectedRtp = doc.GetValue("expectedRtp", 0.0).ToDouble(),
-                                EstimatedHitRate = doc.GetValue("estimatedHitRate", 0.0).ToDouble()
-                            }).ToList();
-                            
-                            lock (lockObj)
-                            {
-                                allReelSets.AddRange(reelSets);
-                                loadedCount += reelSets.Count;
-                                
-                                // Ensure progress never goes backward by using the maximum value
-                                _loadedCount = Math.Max(_loadedCount, loadedCount);
-                                completedBatches++;
-                                
-                                var currentTime = DateTime.UtcNow;
-                                var elapsed = (currentTime - startTime).TotalSeconds;
-                                var progress = (double)_loadedCount / _totalReelSets;
-                                var estimatedTotalTime = elapsed / progress;
-                                var remainingTime = estimatedTotalTime - elapsed;
-                                
-                                // Calculate rate and time metrics
-                                var timeSinceLastProgress = (currentTime - lastProgressTime).TotalSeconds;
-                                var setsPerSecond = _loadedCount / elapsed;
-                                var batchesPerSecond = completedBatches / elapsed;
-                                var avgTimePerBatch = elapsed / completedBatches;
-                                
-                                _logger.LogInformation($"Progress: {_loadedCount:N0}/{_totalReelSets:N0} ({progress:P1}) - " +
-                                    $"Completed batches: {completedBatches}/{numBatches} - " +
-                                    $"Elapsed: {elapsed:F1}s - ETA: {remainingTime:F1}s - " +
-                                    $"Rate: {setsPerSecond:F0} sets/sec, {batchesPerSecond:F1} batches/sec - " +
-                                    $"Avg time per batch: {avgTimePerBatch:F2}s - " +
-                                    $"Current time: {currentTime:HH:mm:ss}");
-                                
-                                lastProgressTime = currentTime;
-                            }
-                            return reelSets;
-                        }
-                        finally
-                        {
-                            semaphore.Release();
-                        }
-                    }));
-                }
-                
-                _logger.LogInformation($"Launched {tasks.Count} parallel tasks with {numThreads} concurrent threads at {DateTime.UtcNow:HH:mm:ss}. Waiting for completion...");
-                await Task.WhenAll(tasks);
-                
-                var totalTime = (DateTime.UtcNow - startTime).TotalSeconds;
-                var finalRate = _allReelSets.Count / totalTime;
-                _logger.LogInformation($"All tasks completed at {DateTime.UtcNow:HH:mm:ss}! " +
-                    $"Total time: {totalTime:F2}s, Average time per batch: {totalTime / numBatches:F2}s, " +
-                    $"Final rate: {finalRate:F0} sets/sec");
-                
-                _allReelSets = allReelSets;
-                _isLoaded = true;
-                _isLoading = false;
-                
-                _logger.LogInformation($"✅ SUCCESS: Loaded all {_allReelSets.Count:N0} reel sets into memory in {totalTime:F2} seconds");
-                _logger.LogInformation($"✅ FINAL STATE: IsLoaded={_isLoaded}, IsLoading={_isLoading}, LoadedCount={_loadedCount}/{_totalReelSets}");
+                await _collection.Indexes.CreateManyAsync(indexKeys);
+                _logger.LogInformation("✅ Database indexes created successfully");
             }
             catch (Exception ex)
             {
-                var totalTime = (DateTime.UtcNow - startTime).TotalSeconds;
-                _logger.LogError(ex, $"Error loading reel sets after {totalTime:F2} seconds. Loaded: {_loadedCount:N0}/{_totalReelSets:N0}");
-                _isLoading = false;
-                _isLoaded = false;
+                _logger.LogWarning(ex, "⚠️ Failed to create indexes (may already exist)");
             }
         }
 
-        [HttpGet("loading-status")]
-        public IActionResult GetLoadingStatus()
+        // Lazy loading with RTP range caching
+        public async Task<List<ReelSet>> GetReelSetsForRtpRangeAsync(double minRtp, double maxRtp, int limit = 1000)
         {
-            // Ensure progress never goes backward by clamping values
-            var clampedLoadedCount = Math.Min(_loadedCount, _totalReelSets);
-            var progressPercentage = _totalReelSets > 0 ? (double)clampedLoadedCount / _totalReelSets : 0;
+            var cacheKey = $"rtp_{minRtp:F2}_{maxRtp:F2}";
             
-            // Ensure progress percentage is between 0 and 1
-            progressPercentage = Math.Max(0, Math.Min(1, progressPercentage));
-            
-            _logger.LogInformation($"📊 Loading status request - IsLoading: {_isLoading}, IsLoaded: {_isLoaded}, " +
-                $"Loaded: {clampedLoadedCount:N0}/{_totalReelSets:N0}, Progress: {progressPercentage:P1}");
-            
-            var response = new
+            // Check cache first
+            if (_rtpRangeCache.ContainsKey(cacheKey))
             {
-                isLoading = _isLoading,
-                isLoaded = _isLoaded,
-                totalReelSets = _totalReelSets,
-                loadedCount = clampedLoadedCount,
-                progressPercentage = progressPercentage
-            };
+                _logger.LogInformation($"🎯 CACHE HIT: Found {_rtpRangeCache[cacheKey].Count} reel sets for RTP range {minRtp:F2}-{maxRtp:F2}");
+                return _rtpRangeCache[cacheKey];
+            }
             
-            _logger.LogInformation($"📊 Returning loading status: {System.Text.Json.JsonSerializer.Serialize(response)}");
-            
-            return Ok(response);
+            await _cacheLock.WaitAsync();
+            try
+            {
+                // Double-check after lock
+                if (_rtpRangeCache.ContainsKey(cacheKey))
+                {
+                    _logger.LogInformation($"🎯 CACHE HIT (after lock): Found {_rtpRangeCache[cacheKey].Count} reel sets for RTP range {minRtp:F2}-{maxRtp:F2}");
+                    return _rtpRangeCache[cacheKey];
+                }
+                
+                _logger.LogInformation($"🔄 CACHE MISS: Loading reel sets for RTP range {minRtp:F2}-{maxRtp:F2} from database");
+                
+                // Load only the needed reel sets from DB
+                var filter = Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Gte("expectedRtp", minRtp),
+                    Builders<BsonDocument>.Filter.Lte("expectedRtp", maxRtp)
+                );
+                
+                var documents = await _collection.Find(filter).Limit(limit).ToListAsync();
+                var reelSets = documents.Select(doc => new ReelSet
+                {
+                    Name = doc.GetValue("name", "").AsString,
+                    Reels = doc["reels"].AsBsonArray
+                        .Select(col => col.AsBsonArray.Select(s => s.AsString).ToList()).ToList(),
+                    ExpectedRtp = doc.GetValue("expectedRtp", 0.0).ToDouble(),
+                    EstimatedHitRate = doc.GetValue("estimatedHitRate", 0.0).ToDouble()
+                }).ToList();
+                
+                // Cache management - remove oldest entries if cache is full
+                if (_rtpRangeCache.Count >= _maxCacheSize)
+                {
+                    var oldestKey = _rtpRangeCache.Keys.First();
+                    _rtpRangeCache.Remove(oldestKey);
+                    _logger.LogInformation($"🗑️ CACHE CLEANUP: Removed oldest cache entry '{oldestKey}'");
+                }
+                
+                _rtpRangeCache[cacheKey] = reelSets;
+                
+                var memoryUsage = GC.GetTotalMemory(false);
+                _totalReelSetsLoaded += reelSets.Count;
+                _totalMemoryUsed = memoryUsage;
+                
+                _logger.LogInformation($"✅ CACHE STORED: {reelSets.Count} reel sets for RTP range {minRtp:F2}-{maxRtp:F2} | Cache size: {_rtpRangeCache.Count} | Memory: {memoryUsage / (1024 * 1024):N0} MB");
+                
+                return reelSets;
+            }
+            finally
+            {
+                _cacheLock.Release();
+            }
         }
+
+        // Get reel sets for current RTP needs - OPTIMIZED FOR SPEED
+        public async Task<List<ReelSet>> GetReelSetsForCurrentRtpAsync(double currentRtp, double targetRtp, GameConfig config)
+        {
+            var startTime = DateTime.UtcNow;
+            var needs = new List<(double min, double max)>();
+            
+            // Determine what RTP ranges we need based on current state
+            if (currentRtp < targetRtp * 0.95)
+            {
+                // Need higher RTP - load ranges above current RTP
+                needs.Add((currentRtp, targetRtp * 1.2));
+                needs.Add((targetRtp * 1.2, targetRtp * 2.0));
+            }
+            else if (currentRtp > targetRtp * 1.05)
+            {
+                // Need lower RTP - load ranges below current RTP
+                needs.Add((targetRtp * 0.5, currentRtp));
+                needs.Add((targetRtp * 0.2, targetRtp * 0.5));
+            }
+            else
+            {
+                // Near target - load balanced ranges
+                needs.Add((targetRtp * 0.8, targetRtp * 1.2));
+            }
+            
+            // 🚀 PARALLEL LOADING for speed
+            var tasks = needs.Select(async (range) => 
+            {
+                var (min, max) = range;
+                return await GetReelSetsForRtpRangeAsync(min, max, _maxReelSetsPerRange);
+            }).ToArray();
+            
+            // Wait for all parallel tasks to complete
+            var results = await Task.WhenAll(tasks);
+            
+            var allReelSets = results.SelectMany(x => x).ToList();
+            var loadTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            
+            _logger.LogInformation($"🎯 LOADED {allReelSets.Count} reel sets for current RTP {currentRtp:F2} (target: {targetRtp:F2}) in {loadTime:F0}ms");
+            
+            // Trigger background prefetching for next spins
+            _ = Task.Run(async () => await TriggerPrefetchAsync(currentRtp, targetRtp));
+            
+            return allReelSets;
+        }
+
+        // 🚀 BACKGROUND PREFETCHING for faster subsequent spins
+        private async Task TriggerPrefetchAsync(double currentRtp, double targetRtp)
+        {
+            try
+            {
+                await _prefetchLock.WaitAsync();
+                
+                // Check if we should prefetch (avoid too frequent prefetching)
+                if (DateTime.UtcNow - _lastPrefetchTime < _prefetchInterval)
+                {
+                    return;
+                }
+                
+                _lastPrefetchTime = DateTime.UtcNow;
+                
+                // Calculate likely RTP ranges for next spins
+                var prefetchRanges = new List<(double min, double max)>();
+                
+                // Prefetch ranges around current RTP
+                var rangeSize = targetRtp * _prefetchRangeSize;
+                for (int i = 0; i < _prefetchRangeCount; i++)
+                {
+                    var center = currentRtp + (i - _prefetchRangeCount / 2) * rangeSize;
+                    var min = Math.Max(0.1, center - rangeSize / 2);
+                    var max = Math.Min(5.0, center + rangeSize / 2);
+                    prefetchRanges.Add((min, max));
+                }
+                
+                _logger.LogInformation($"🚀 STARTING PREFETCH: {prefetchRanges.Count} ranges around RTP {currentRtp:F2}");
+                
+                // Start prefetching in background
+                foreach (var (min, max) in prefetchRanges)
+                {
+                    var cacheKey = $"rtp_{min:F2}_{max:F2}";
+                    
+                    // Only prefetch if not already cached
+                    if (!_rtpRangeCache.ContainsKey(cacheKey) && !_prefetchTasks.ContainsKey(cacheKey))
+                    {
+                        var prefetchTask = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await GetReelSetsForRtpRangeAsync(min, max, 500); // Smaller limit for prefetch
+                                _logger.LogInformation($"✅ PREFETCH COMPLETED: RTP range {min:F2}-{max:F2}");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, $"⚠️ PREFETCH FAILED: RTP range {min:F2}-{max:F2}");
+                            }
+                            finally
+                            {
+                                _prefetchTasks.Remove(cacheKey);
+                            }
+                        });
+                        
+                        _prefetchTasks[cacheKey] = prefetchTask;
+                    }
+                }
+                
+                _logger.LogInformation($"🚀 PREFETCH INITIATED: {_prefetchTasks.Count} background tasks started");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "⚠️ Prefetch trigger failed");
+            }
+            finally
+            {
+                _prefetchLock.Release();
+            }
+        }
+
+        // REMOVED: Old loading status endpoints - no longer needed with lazy loading
 
         [HttpGet("test")]
         public IActionResult Test()
         {
             _logger.LogInformation("🧪 Test endpoint called successfully");
-            return Ok(new { message = "API is working", timestamp = DateTime.UtcNow });
+            return Ok(new { 
+                message = "API is working", 
+                timestamp = DateTime.UtcNow,
+                version = "OPTIMIZED_LAZY_LOADING",
+                features = new {
+                    lazyLoading = true,
+                    parallelLoading = true,
+                    prefetching = true,
+                    timeoutProtection = true,
+                    memoryOptimization = true
+                },
+                memoryUsage = GC.GetTotalMemory(false) / (1024 * 1024)
+            });
         }
 
-
-
-        [HttpGet("trigger-reload")]
-        public async Task<IActionResult> TriggerReelSetReload()
+        [HttpGet("health")]
+        public IActionResult Health()
         {
-            try
-            {
-                _logger.LogInformation("🔄 Manual reel set reload triggered from frontend...");
-                _logger.LogInformation("🔄 FORCING FRESH RELOAD - Resetting loaded state...");
-                
-                // Force fresh reload by resetting state
-                _isLoaded = false;
-                _isLoading = false;
-                _loadedCount = 0;
-                _allReelSets.Clear();
-                
-                // Reset all game statistics to start fresh
-                _logger.LogInformation("🔄 RESETTING ALL GAME STATISTICS - Starting fresh spin sequence...");
-                SpinLogicHelper.ResetAllStats();
-                
-                _logger.LogInformation("Starting LoadAllReelSetsAsync in background...");
-                // Start loading in background without awaiting
-                _ = Task.Run(async () => 
-                {
-                    try
-                    {
-                        _logger.LogInformation("🔄 Background task started - calling LoadAllReelSetsAsync...");
-                        await LoadAllReelSetsAsync();
-                        _logger.LogInformation("🔄 Background task completed - LoadAllReelSetsAsync finished");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error in background LoadAllReelSetsAsync");
-                    }
-                });
-                
-                _logger.LogInformation("✅ Reel set reload initiated - returning immediately to allow progress polling");
-                
-                return Ok(new
-                {
-                    success = true,
-                    message = "Reel set reload initiated - progress will be available via loading-status endpoint",
-                    totalReelSets = _totalReelSets,
-                    loadedCount = _loadedCount,
-                    isLoaded = _isLoaded
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during manual reel set reload");
-                return StatusCode(500, new { error = $"Reel set reload failed: {ex.Message}" });
-            }
+            return Ok(new { 
+                status = "healthy",
+                timestamp = DateTime.UtcNow,
+                version = "OPTIMIZED_LAZY_LOADING",
+                memoryUsageMB = GC.GetTotalMemory(false) / (1024 * 1024),
+                uptime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime(),
+                mongoConnection = _collection != null ? "connected" : "disconnected"
+            });
         }
+
+        // REMOVED: Old trigger-reload endpoint - no longer needed with lazy loading
 
         [HttpPost("spin")]
         public async Task<IActionResult> Spin([FromBody] SpinRequestDto request)
         {
             try
             {
+                var startTime = DateTime.UtcNow;
+                MemoryMonitor.TakeSnapshot("Spin_Start");
+                var initialMemory = GC.GetTotalMemory(false);
+                
+                _logger.LogInformation($"🎰 SPIN REQUEST: Bet={request.Level}, Current RTP={SpinLogicHelper.GetActualRtp():P2}");
+                
                 // Validate bet parameters
                 if (!BettingSystem.ValidateBet(request.Level, request.CoinValue, _config.MaxLevel, _config.MinCoinValue, _config.MaxCoinValue))
                 {
@@ -292,56 +340,62 @@ namespace BloodSuckersSlot.Api.Controllers
                 int betInCoins = BettingSystem.CalculateBetInCoins(_config.BaseBetPerLevel, request.Level);
                 decimal totalBet = BettingSystem.CalculateTotalBet(_config.BaseBetPerLevel, request.Level, request.CoinValue);
                 
-                _logger.LogInformation($"Starting spin - Level: {request.Level}, CoinValue: {request.CoinValue:C}, BetInCoins: {betInCoins}, TotalBet: {totalBet:C}");
+                // 🚀 TIMEOUT PROTECTION: Add timeout to prevent hanging
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // 10 second timeout
                 
-                // Use only real reel sets from MongoDB
-                var reelSetsToUse = _allReelSets;
+                // Get reel sets based on current RTP needs (lazy loading) with timeout
+                var currentRtp = SpinLogicHelper.GetActualRtp();
+                List<ReelSet> reelSets;
                 
-                if (reelSetsToUse.Count == 0)
+                try
                 {
-                    return StatusCode(500, new { error = "No reel sets available." });
+                    reelSets = await GetReelSetsForCurrentRtpAsync(currentRtp, _config.RtpTarget, _config).WaitAsync(cts.Token);
                 }
-
-                _logger.LogInformation($"✅ Using {reelSetsToUse.Count} reel sets for spin (MongoDB loaded: {_isLoaded})");
+                catch (OperationCanceledException)
+                {
+                    _logger.LogError("❌ TIMEOUT: Reel set loading took too long (>10 seconds)");
+                    return StatusCode(408, new { error = "Request timeout - reel set loading took too long. Please try again." });
+                }
                 
-                // Use static helper for spin logic with bet in coins
-                var spinResultTuple = SpinLogicHelper.SpinWithReelSets(_config, betInCoins, reelSetsToUse);
-                var result = spinResultTuple.Result;
-                var grid = spinResultTuple.Grid;
-                var chosenSet = spinResultTuple.ChosenSet;
-                var winningLines = spinResultTuple.WinningLines;
-
+                MemoryMonitor.TakeSnapshot("After_ReelSet_Loading");
+                var memoryAfterLoading = GC.GetTotalMemory(false);
+                var memoryIncrease = memoryAfterLoading - initialMemory;
+                
+                _logger.LogInformation($"💾 MEMORY USAGE: +{memoryIncrease / (1024 * 1024):N0} MB for {reelSets.Count} reel sets");
+                
+                if (reelSets.Count == 0)
+                {
+                    return StatusCode(500, new { error = "No reel sets available for current RTP range." });
+                }
+                
+                // Execute spin with loaded reel sets
+                var (result, grid, chosenSet, winningLines) = SpinLogicHelper.SpinWithReelSets(_config, betInCoins, reelSets);
+                
                 if (result == null || grid == null || chosenSet == null)
                 {
                     _logger.LogWarning("Spin returned null values - this might be due to no valid reel sets available");
                     return StatusCode(500, new { error = "Spin failed or was delayed." });
                 }
-
+                
                 // Calculate monetary payout
                 decimal monetaryPayout = BettingSystem.CalculatePayout((int)result.TotalWin, request.CoinValue);
                 
                 // Get actual RTP and Hit Rate from the helper
                 var actualRtp = SpinLogicHelper.GetActualRtp();
                 var actualHitRate = SpinLogicHelper.GetActualHitRate();
-
+                
+                var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                var finalMemory = GC.GetTotalMemory(false);
+                
+                MemoryMonitor.TakeSnapshot("Spin_Complete");
+                
+                // Get memory pool stats
+                var poolStats = ReelSetPool.GetStats();
+                
+                _logger.LogInformation($"✅ SPIN COMPLETED: {totalTime:F0}ms | Memory: {finalMemory / (1024 * 1024):N0} MB | Cache: {_rtpRangeCache.Count} ranges");
                 _logger.LogInformation($"Spin completed successfully - TotalWin: {result.TotalWin} coins ({monetaryPayout:C}), RTP: {actualRtp}, HitRate: {actualHitRate}, WinningLines: {winningLines?.Count ?? 0}");
-                _logger.LogInformation($"DEBUG: LineWin: {result.LineWin}, WildWin: {result.WildWin}, ScatterWin: {result.ScatterWin}, BonusWin: {result.BonusWin}");
-                _logger.LogInformation($"DEBUG: BetInCoins: {betInCoins}, CoinValue: {request.CoinValue:C}, Calculated MonetaryPayout: {monetaryPayout:C}");
-
-                // Debug winning lines
-                if (winningLines != null && winningLines.Count > 0)
-                {
-                    foreach (var line in winningLines)
-                    {
-                        _logger.LogInformation($"Winning line: Symbol={line.Symbol}, Count={line.Count}, WinAmount={line.WinAmount} coins, Positions={line.Positions?.Count ?? 0}, SvgPath={line.SvgPath}");
-                    }
-                }
-                else
-                {
-                    _logger.LogInformation("No winning lines found");
-                }
-
-                // Return grid, win info, RTP/hitrate, and winning lines
+                _logger.LogInformation($"💾 MEMORY POOL: Created={poolStats.totalCreated}, Reused={poolStats.totalReused}, PoolSize={poolStats.poolSize}");
+                
                 return Ok(new
                 {
                     grid,
@@ -354,16 +408,76 @@ namespace BloodSuckersSlot.Api.Controllers
                         chosenSet.ExpectedRtp,
                         chosenSet.EstimatedHitRate
                     },
-                                         rtp = actualRtp, // Keep as decimal - already converted in SlotEngine
-                     hitRate = actualHitRate, // Keep as decimal - already converted in SlotEngine
-                    winningLines = winningLines ?? new List<WinningLine>()
+                    rtp = actualRtp,
+                    hitRate = actualHitRate,
+                    winningLines = winningLines ?? new List<WinningLine>(),
+                    performance = new
+                    {
+                        spinTimeMs = totalTime,
+                        memoryUsageMB = finalMemory / (1024 * 1024),
+                        cacheSize = _rtpRangeCache.Count,
+                        reelSetsLoaded = reelSets.Count,
+                        memoryIncreaseMB = memoryIncrease / (1024 * 1024),
+                        poolStats = new
+                        {
+                            totalCreated = poolStats.totalCreated,
+                            totalReused = poolStats.totalReused,
+                            poolSize = poolStats.poolSize
+                        }
+                    }
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Exception during spin");
-                return StatusCode(500, new { error = $"Spin failed: {ex.Message}" });
+                _logger.LogError(ex, "❌ Spin failed");
+                return StatusCode(500, new { error = "Spin failed", details = ex.Message });
             }
+        }
+
+        [HttpGet("stats")]
+        public IActionResult GetStats()
+        {
+            var memoryUsage = GC.GetTotalMemory(false);
+            return Ok(new
+            {
+                memoryUsageMB = memoryUsage / (1024 * 1024),
+                cacheSize = _rtpRangeCache.Count,
+                totalReelSetsLoaded = _totalReelSetsLoaded,
+                cacheRanges = _rtpRangeCache.Keys.ToList(),
+                prefetchStats = new
+                {
+                    activePrefetchTasks = _prefetchTasks.Count,
+                    lastPrefetchTime = _lastPrefetchTime,
+                    prefetchInterval = _prefetchInterval.TotalSeconds
+                },
+                performance = new
+                {
+                    averageMemoryPerReelSet = _totalReelSetsLoaded > 0 ? memoryUsage / _totalReelSetsLoaded : 0,
+                    cacheHitRate = "N/A" // Would need to track hits/misses
+                }
+            });
+        }
+
+        [HttpPost("clear-cache")]
+        public IActionResult ClearCache()
+        {
+            var beforeMemory = GC.GetTotalMemory(false);
+            var cacheSize = _rtpRangeCache.Count;
+            
+            _rtpRangeCache.Clear();
+            _totalReelSetsLoaded = 0;
+            
+            var afterMemory = GC.GetTotalMemory(false);
+            var memoryFreed = beforeMemory - afterMemory;
+            
+            _logger.LogInformation($"🗑️ CACHE CLEARED: Freed {memoryFreed / (1024 * 1024):N0} MB | Removed {cacheSize} cache entries");
+            
+            return Ok(new
+            {
+                message = "Cache cleared successfully",
+                memoryFreedMB = memoryFreed / (1024 * 1024),
+                cacheEntriesRemoved = cacheSize
+            });
         }
     }
 

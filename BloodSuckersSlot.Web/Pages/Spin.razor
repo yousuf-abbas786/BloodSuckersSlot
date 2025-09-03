@@ -768,61 +768,47 @@
         try
         {
             var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
-            var apiUrl = $"{apiBaseUrl}/api/spin/loading-status";
-            await JS.InvokeVoidAsync("console.log", $"Checking loading status: {apiUrl}");
+            var apiUrl = $"{apiBaseUrl}/api/spin/health";
+            await JS.InvokeVoidAsync("console.log", $"Checking API health: {apiUrl}");
             
             var response = await Http.GetAsync(apiUrl);
-            await JS.InvokeVoidAsync("console.log", $"Loading status response: {response.StatusCode}");
+            await JS.InvokeVoidAsync("console.log", $"Health check response: {response.StatusCode}");
             
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync();
-                await JS.InvokeVoidAsync("console.log", $"Loading status JSON: {json}");
+                await JS.InvokeVoidAsync("console.log", $"Health check JSON: {json}");
                 
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
-                var newIsLoading = root.GetProperty("isLoading").GetBoolean();
-                var newIsLoaded = root.GetProperty("isLoaded").GetBoolean();
-                var newTotalReelSets = root.GetProperty("totalReelSets").GetInt32();
-                var newLoadedReelSets = root.GetProperty("loadedCount").GetInt32();
-                var newProgress = root.GetProperty("progressPercentage").GetDouble();
+                // With lazy loading, we don't need to wait for reel sets to load
+                // The API will load them on-demand when spinning
+                isLoadingReelSets = false;
+                reelSetsLoaded = true;
+                totalReelSets = 0; // Not applicable with lazy loading
+                loadedReelSets = 0; // Not applicable with lazy loading
+                loadingProgress = 1.0; // 100% - ready to spin
 
-                // Update state variables
-                isLoadingReelSets = newIsLoading;
-                reelSetsLoaded = newIsLoaded;
-                totalReelSets = newTotalReelSets;
-                loadedReelSets = newLoadedReelSets;
-                loadingProgress = newProgress;
-
-                await JS.InvokeVoidAsync("console.log", $"Progress update - Loading: {isLoadingReelSets}, Loaded: {reelSetsLoaded}, " +
-                    $"Progress: {loadingProgress:P1} ({loadedReelSets:N0}/{totalReelSets:N0})");
+                await JS.InvokeVoidAsync("console.log", $"✅ API ready for spinning - Lazy loading enabled");
                 
-                // Force UI update to show progress
+                // Force UI update
                 StateHasChanged();
-
-                if (isLoadingReelSets)
-                {
-                    // Poll more frequently for smoother progress updates
-                    await Task.Delay(200); // Reduced to 200ms for more responsive updates
-                    await CheckLoadingStatus();
-                }
-                else if (reelSetsLoaded)
-                {
-                    await JS.InvokeVoidAsync("console.log", "✅ Loading completed - reel sets are ready!");
-                    isLoadingReelSets = false;
-                    StateHasChanged();
-                }
             }
             else
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                await JS.InvokeVoidAsync("console.error", $"Loading status error: {response.StatusCode} - {errorContent}");
+                await JS.InvokeVoidAsync("console.error", $"❌ API health check failed: {response.StatusCode}");
+                isLoadingReelSets = false;
+                reelSetsLoaded = false;
+                StateHasChanged();
             }
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("console.error", "Error checking loading status:", ex.Message);
+            await JS.InvokeVoidAsync("console.error", "Error checking API health:", ex.Message);
+            isLoadingReelSets = false;
+            reelSetsLoaded = false;
+            StateHasChanged();
         }
     }
 
@@ -830,91 +816,41 @@
     {
         try
         {
-            await JS.InvokeVoidAsync("console.log", "🔄 Triggering reel set reload from frontend...");
+            await JS.InvokeVoidAsync("console.log", "🔄 Checking API readiness for lazy loading...");
             
-            // First test if API is accessible
+            // Test if API is accessible using the health endpoint
             var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
-            var testUrl = $"{apiBaseUrl}/api/spin/test";
+            var testUrl = $"{apiBaseUrl}/api/spin/health";
             await JS.InvokeVoidAsync("console.log", $"Testing API connectivity: {testUrl}");
             
             var testResponse = await Http.GetAsync(testUrl);
-            await JS.InvokeVoidAsync("console.log", $"Test response status: {testResponse.StatusCode}");
+            await JS.InvokeVoidAsync("console.log", $"Health check response status: {testResponse.StatusCode}");
             
             if (testResponse.IsSuccessStatusCode)
             {
                 var testJson = await testResponse.Content.ReadAsStringAsync();
-                await JS.InvokeVoidAsync("console.log", $"✅ API test successful: {testJson}");
+                await JS.InvokeVoidAsync("console.log", $"✅ API health check successful: {testJson}");
                 
-                // Also test MongoDB connection
-                var mongoTestUrl = $"{apiBaseUrl}/api/spin/test-mongo";
-                await JS.InvokeVoidAsync("console.log", $"Testing MongoDB connectivity: {mongoTestUrl}");
-                
-                var mongoTestResponse = await Http.GetAsync(mongoTestUrl);
-                await JS.InvokeVoidAsync("console.log", $"MongoDB test response status: {mongoTestResponse.StatusCode}");
-                
-                if (mongoTestResponse.IsSuccessStatusCode)
-                {
-                    var mongoTestJson = await mongoTestResponse.Content.ReadAsStringAsync();
-                    await JS.InvokeVoidAsync("console.log", $"✅ MongoDB test successful: {mongoTestJson}");
-                }
-                else
-                {
-                    var mongoErrorContent = await mongoTestResponse.Content.ReadAsStringAsync();
-                    await JS.InvokeVoidAsync("console.error", $"❌ MongoDB test failed: {mongoErrorContent}");
-                    // Continue anyway - the API is working, MongoDB might be temporary issue
-                }
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("console.error", "❌ API test failed - API might not be running");
-                return;
-            }
-            
-            // Add a small delay to ensure API is ready
-            await Task.Delay(1000);
-            
-            // Show loading state immediately
-            isLoadingReelSets = true;
-            loadingProgress = 0;
-            reelSetsLoaded = false;
-            await JS.InvokeVoidAsync("console.log", $"🔄 Set loading state: isLoadingReelSets={isLoadingReelSets}, loadingProgress={loadingProgress}, reelSetsLoaded={reelSetsLoaded}");
-            StateHasChanged();
-            
-            // Make a request to trigger reel set reload
-            var apiUrl = $"{apiBaseUrl}/api/spin/trigger-reload";
-            await JS.InvokeVoidAsync("console.log", $"Making GET request to: {apiUrl}");
-            
-            var response = await Http.GetAsync(apiUrl);
-            
-            await JS.InvokeVoidAsync("console.log", $"Response status: {response.StatusCode}");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var json = await response.Content.ReadAsStringAsync();
-                await JS.InvokeVoidAsync("console.log", $"✅ Reel set reload response: {json}");
-                
-                // Start polling for progress after a short delay to ensure API has started loading
-                await JS.InvokeVoidAsync("console.log", "🔄 Starting progress polling after reload trigger...");
-                await Task.Delay(500); // Give API time to start the loading process
+                // With lazy loading, we don't need to trigger any reload
+                // Just check that the API is healthy and ready
                 await CheckLoadingStatus();
             }
             else
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                await JS.InvokeVoidAsync("console.error", $"Failed to trigger reel set reload: {response.StatusCode} - {errorContent}");
-                
-                // Reset loading state on error
+                await JS.InvokeVoidAsync("console.error", "❌ API health check failed - API might not be running");
                 isLoadingReelSets = false;
+                reelSetsLoaded = false;
                 StateHasChanged();
             }
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("console.error", "Error triggering reel set reload:", ex.Message);
+            await JS.InvokeVoidAsync("console.error", "Error checking API readiness:", ex.Message);
             await JS.InvokeVoidAsync("console.error", "Exception details:", ex.ToString());
             
             // Reset loading state on error
             isLoadingReelSets = false;
+            reelSetsLoaded = false;
             StateHasChanged();
         }
     }
