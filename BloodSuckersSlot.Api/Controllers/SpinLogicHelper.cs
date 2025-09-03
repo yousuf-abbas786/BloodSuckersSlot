@@ -387,12 +387,12 @@ namespace BloodSuckersSlot.Api.Controllers
             else
                 _consecutiveHighRtpSpins = 0;
 
-            // PHASE 1: Enhanced thresholds with recovery boost
-            bool needHigherRtp = currentRtp < config.RtpTarget * 0.9; // Below 90% of target
-            bool needLowerRtp = currentRtp > config.RtpTarget * 1.1; // Above 110% of target
-            bool needHigherHitRate = currentHitRate < config.TargetHitRate * 0.8; // Below 80% of target
-            bool needLowerHitRate = currentHitRate > config.TargetHitRate * 1.1; // Above 110% of target
-            bool needLowerVolatility = currentVolatility > config.VolatilityThreshold; // High volatility threshold
+                    // PHASE 1: Enhanced thresholds with recovery boost
+        bool needHigherRtp = currentRtp < config.RtpTarget * 0.95; // Below 95% of target - More sensitive
+        bool needLowerRtp = currentRtp > config.RtpTarget * 1.05; // Above 105% of target - More sensitive
+        bool needHigherHitRate = currentHitRate < config.TargetHitRate * 0.8; // Below 80% of target
+        bool needLowerHitRate = currentHitRate > config.TargetHitRate * 1.1; // Above 110% of target
+        bool needLowerVolatility = currentVolatility > config.VolatilityThreshold; // High volatility threshold
             
             // PHASE 1: Recovery boost for consecutive low RTP spins
             bool recoveryBoost = _consecutiveLowRtpSpins >= 10; // Boost after 10 consecutive low RTP spins
@@ -403,11 +403,11 @@ namespace BloodSuckersSlot.Api.Controllers
                 needLowerRtp = false; // Disable RTP reduction
             }
             
-                         // EMERGENCY RTP REDUCTION: Force dramatic drops after 3 consecutive high RTP spins
-             bool emergencyReduction = _consecutiveHighRtpSpins >= 3; // Emergency after 3 consecutive high RTP spins
+                         // EMERGENCY RTP REDUCTION: Force dramatic drops after 5 consecutive high RTP spins
+             bool emergencyReduction = _consecutiveHighRtpSpins >= 5; // Emergency after 5 consecutive high RTP spins (increased from 3)
              if (emergencyReduction)
              {
-                 Console.WriteLine($"🚨 EMERGENCY RTP REDUCTION ACTIVATED: {_consecutiveHighRtpSpins} consecutive high RTP spins - Forcing ultra low RTP selection");
+                 Console.WriteLine($"🚨 EMERGENCY RTP REDUCTION ACTIVATED: {_consecutiveHighRtpSpins} consecutive high RTP spins - Forcing low RTP selection");
                  needLowerRtp = true; // Force RTP reduction
                  needHigherRtp = false; // Disable RTP recovery
              }
@@ -415,25 +415,25 @@ namespace BloodSuckersSlot.Api.Controllers
                           // Filter reel sets based on current needs
              var candidateSets = new List<ReelSet>();
              
-             // ULTRA EMERGENCY: If RTP is above 120% for more than 2 spins, force immediate reduction
-             if (currentRtp > config.RtpTarget * 1.2 && _consecutiveHighRtpSpins >= 2)
+             // ULTRA EMERGENCY: If RTP is above 120% for more than 3 spins, force immediate reduction
+             if (currentRtp > config.RtpTarget * 1.2 && _consecutiveHighRtpSpins >= 3)
              {
-                 Console.WriteLine($"🚨🚨 ULTRA EMERGENCY RTP REDUCTION: RTP {currentRtp:P2} > 120% for {_consecutiveHighRtpSpins} spins - FORCING ULTRA LOW RTP");
+                 Console.WriteLine($"🚨🚨 ULTRA EMERGENCY RTP REDUCTION: RTP {currentRtp:P2} > 120% for {_consecutiveHighRtpSpins} spins - FORCING LOW RTP");
                  needLowerRtp = true; // Force RTP reduction
                  needHigherRtp = false; // Disable RTP recovery
                  
-                 // Clear all candidates and force ultra low RTP selection
+                 // Clear all candidates and force low RTP selection
                  candidateSets.Clear();
                  var ultraLowCandidates = reelSets
-                     .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.2) // Use ANY reel set with 17.6% or lower RTP
+                     .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.5) // Use reel sets with 44% or lower RTP (less extreme)
                      .OrderBy(r => r.ExpectedRtp)
-                     .Take(config.MaxCandidatesPerCategory * 5)
+                     .Take(config.MaxCandidatesPerCategory * 3)
                      .ToList();
                  
                  if (ultraLowCandidates.Any())
                  {
                      candidateSets.AddRange(ultraLowCandidates);
-                     Console.WriteLine($"🚨🚨 ULTRA EMERGENCY: Selected {ultraLowCandidates.Count} ultra low RTP candidates with RTP {ultraLowCandidates.Min(r => r.ExpectedRtp):P0} to {ultraLowCandidates.Max(r => r.ExpectedRtp):P0}");
+                     Console.WriteLine($"🚨🚨 ULTRA EMERGENCY: Selected {ultraLowCandidates.Count} low RTP candidates with RTP {ultraLowCandidates.Min(r => r.ExpectedRtp):P0} to {ultraLowCandidates.Max(r => r.ExpectedRtp):P0}");
                      
                      // Skip all other logic and return immediately
                      var uniqueCandidates = candidateSets.Distinct().ToList();
@@ -588,17 +588,17 @@ namespace BloodSuckersSlot.Api.Controllers
             // PHASE 2: Add random volatility events for dynamic waves
             _spinCounter++;
             
-                         // ULTRA AGGRESSIVE random volatility events for dramatic waves
-             if (_spinCounter - _lastVolatilityEvent > 3 && _rng.Next(100) < 60) // 60% chance every spin after 3 (ultra frequent)
+                         // Reduced random volatility events for more balanced waves
+             if (_spinCounter - _lastVolatilityEvent > 5 && _rng.Next(100) < 30) // 30% chance every spin after 5 (less frequent)
             {
                 _lastVolatilityEvent = _spinCounter;
                 bool isHighVolatility = _rng.Next(2) == 0;
                 
                 if (isHighVolatility)
                 {
-                    Console.WriteLine($"⚡ ULTRA HIGH VOLATILITY EVENT: Forcing ultra high RTP selection for dramatic waves");
+                    Console.WriteLine($"⚡ HIGH VOLATILITY EVENT: Forcing high RTP selection for waves");
                     var highVolCandidates = reelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 2.0) // Use ANY reel set with 176%+ RTP (including 1000%+ sets)
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.3 && r.ExpectedRtp <= config.RtpTarget * 2.0) // 114.4% to 176% - More controlled range
                         .OrderByDescending(r => r.ExpectedRtp)
                         .Take(config.MaxCandidatesPerCategory * 2)
                         .ToList();
@@ -606,14 +606,14 @@ namespace BloodSuckersSlot.Api.Controllers
                     if (highVolCandidates.Any())
                     {
                         candidateSets.AddRange(highVolCandidates);
-                        Console.WriteLine($"🔥 ULTRA HIGH VOLATILITY: Selected {highVolCandidates.Count} candidates with RTP {highVolCandidates.Min(r => r.ExpectedRtp):P0} to {highVolCandidates.Max(r => r.ExpectedRtp):P0}");
+                        Console.WriteLine($"🔥 HIGH VOLATILITY: Selected {highVolCandidates.Count} candidates with RTP {highVolCandidates.Min(r => r.ExpectedRtp):P0} to {highVolCandidates.Max(r => r.ExpectedRtp):P0}");
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"⚡ ULTRA LOW VOLATILITY EVENT: Forcing ultra low RTP selection for dramatic waves");
+                    Console.WriteLine($"⚡ LOW VOLATILITY EVENT: Forcing low RTP selection for waves");
                     var lowVolCandidates = reelSets
-                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.3) // Use ANY reel set with 26.4% or lower RTP
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.3 && r.ExpectedRtp <= config.RtpTarget * 0.7) // 26.4% to 61.6% - More controlled range
                         .OrderBy(r => r.ExpectedRtp) // Prefer lowest RTP for maximum contrast
                         .Take(config.MaxCandidatesPerCategory * 2)
                         .ToList();
@@ -621,35 +621,35 @@ namespace BloodSuckersSlot.Api.Controllers
                     if (lowVolCandidates.Any())
                     {
                         candidateSets.AddRange(lowVolCandidates);
-                        Console.WriteLine($"🌵 ULTRA LOW VOLATILITY: Selected {lowVolCandidates.Count} candidates with RTP {lowVolCandidates.Min(r => r.ExpectedRtp):P0} to {lowVolCandidates.Max(r => r.ExpectedRtp):P0}");
+                        Console.WriteLine($"🌵 LOW VOLATILITY: Selected {lowVolCandidates.Count} candidates with RTP {lowVolCandidates.Min(r => r.ExpectedRtp):P0} to {lowVolCandidates.Max(r => r.ExpectedRtp):P0}");
                     }
                 }
             }
             
-                         // ULTRA DRAMATIC dry spells and hot streaks for maximum excitement
-             if (_spinCounter - _lastDrySpellEvent > 5 && _rng.Next(100) < 40) // 40% chance every spin after 5 (ultra frequent)
+                         // Reduced dry spells and hot streaks for more balanced excitement
+             if (_spinCounter - _lastDrySpellEvent > 8 && _rng.Next(100) < 25) // 25% chance every spin after 8 (less frequent)
             {
                 _lastDrySpellEvent = _spinCounter;
-                Console.WriteLine($"🌵 ULTRA DRY SPELL: Creating intentional ultra low-win period for dramatic gaps");
+                Console.WriteLine($"🌵 DRY SPELL: Creating intentional low-win period for gaps");
                 var drySpellCandidates = reelSets
-                    .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.3) // Use ANY reel set with 26.4% or lower RTP (even more extreme)
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.2 && r.ExpectedRtp <= config.RtpTarget * 0.6) // 17.6% to 52.8% - More controlled range
                     .OrderBy(r => r.ExpectedRtp) // Prefer lowest RTP for maximum dry spell effect
-                    .Take(config.MaxCandidatesPerCategory * 3)
+                    .Take(config.MaxCandidatesPerCategory * 2)
                     .ToList();
                 
                 if (drySpellCandidates.Any())
                 {
                     candidateSets.AddRange(drySpellCandidates);
-                    Console.WriteLine($"🌵 ULTRA DRY SPELL: Selected {drySpellCandidates.Count} candidates with RTP {drySpellCandidates.Min(r => r.ExpectedRtp):P0} to {drySpellCandidates.Max(r => r.ExpectedRtp):P0}");
+                    Console.WriteLine($"🌵 DRY SPELL: Selected {drySpellCandidates.Count} candidates with RTP {drySpellCandidates.Min(r => r.ExpectedRtp):P0} to {drySpellCandidates.Max(r => r.ExpectedRtp):P0}");
                 }
             }
             
-                         if (_spinCounter - _lastHotStreakEvent > 8 && _rng.Next(100) < 35) // 35% chance every spin after 8 (ultra frequent)
+                         if (_spinCounter - _lastHotStreakEvent > 12 && _rng.Next(100) < 20) // 20% chance every spin after 12 (less frequent)
             {
                 _lastHotStreakEvent = _spinCounter;
-                Console.WriteLine($"🔥 ULTRA HOT STREAK: Creating intentional ultra high-win period for maximum excitement");
+                Console.WriteLine($"🔥 HOT STREAK: Creating intentional high-win period for excitement");
                 var hotStreakCandidates = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 3.0) // Use ANY reel set with 264%+ RTP (including 1000%+ sets)
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.5 && r.ExpectedRtp <= config.RtpTarget * 2.5) // 132% to 220% - More controlled range
                     .OrderByDescending(r => r.ExpectedRtp) // Prefer highest RTP for maximum hot streak effect
                     .Take(config.MaxCandidatesPerCategory * 2)
                     .ToList();
@@ -664,7 +664,7 @@ namespace BloodSuckersSlot.Api.Controllers
                  // ULTRA AGGRESSIVE FORCED WAVE PATTERN: Override everything for guaranteed dramatic waves
          _waveCounter++;
          
-         if (_waveCounter >= 2) // Every 2 spins (ultra frequent)
+         if (_waveCounter >= 3) // Every 3 spins (less frequent for more natural waves)
          {
              _waveCounter = 0;
              _forceHighRtp = !_forceHighRtp; // Alternate between high and low
@@ -674,46 +674,46 @@ namespace BloodSuckersSlot.Api.Controllers
              
              if (_forceHighRtp)
              {
-                 Console.WriteLine($"🌊 ULTRA FORCED WAVE: HIGH RTP PHASE - Overriding all other logic");
+                 Console.WriteLine($"🌊 FORCED WAVE: HIGH RTP PHASE - Creating wave above target");
                  var forcedHighCandidates = reelSets
-                     .Where(r => r.ExpectedRtp >= config.RtpTarget * 2.0) // Use ANY reel set with 176%+ RTP (ultra aggressive)
+                     .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2 && r.ExpectedRtp <= config.RtpTarget * 1.8) // 105.6% to 158.4% - More controlled range
                      .OrderByDescending(r => r.ExpectedRtp)
-                     .Take(config.MaxCandidatesPerCategory * 5)
+                     .Take(config.MaxCandidatesPerCategory * 3)
                      .ToList();
                  
                  if (forcedHighCandidates.Any())
                  {
                      candidateSets.AddRange(forcedHighCandidates);
-                     Console.WriteLine($"🌊 ULTRA FORCED HIGH WAVE: Selected {forcedHighCandidates.Count} candidates with RTP {forcedHighCandidates.Min(r => r.ExpectedRtp):P0} to {forcedHighCandidates.Max(r => r.ExpectedRtp):P0}");
+                     Console.WriteLine($"🌊 FORCED HIGH WAVE: Selected {forcedHighCandidates.Count} candidates with RTP {forcedHighCandidates.Min(r => r.ExpectedRtp):P0} to {forcedHighCandidates.Max(r => r.ExpectedRtp):P0}");
                  }
                  else
                  {
-                     // Fallback: use any high RTP reel sets
-                     var fallbackHigh = reelSets.OrderByDescending(r => r.ExpectedRtp).Take(10).ToList();
+                     // Fallback: use any high RTP reel sets within reasonable range
+                     var fallbackHigh = reelSets.Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1).OrderByDescending(r => r.ExpectedRtp).Take(10).ToList();
                      candidateSets.AddRange(fallbackHigh);
-                     Console.WriteLine($"🌊 ULTRA FORCED HIGH WAVE FALLBACK: Selected {fallbackHigh.Count} candidates");
+                     Console.WriteLine($"🌊 FORCED HIGH WAVE FALLBACK: Selected {fallbackHigh.Count} candidates");
                  }
              }
              else
              {
-                 Console.WriteLine($"🌊 ULTRA FORCED WAVE: LOW RTP PHASE - Overriding all other logic");
+                 Console.WriteLine($"🌊 FORCED WAVE: LOW RTP PHASE - Creating wave below target");
                  var forcedLowCandidates = reelSets
-                     .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.3) // Use ANY reel set with 26.4% or lower RTP (ultra aggressive)
+                     .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.4 && r.ExpectedRtp <= config.RtpTarget * 0.8) // 35.2% to 70.4% - More controlled range
                      .OrderBy(r => r.ExpectedRtp)
-                     .Take(config.MaxCandidatesPerCategory * 5)
+                     .Take(config.MaxCandidatesPerCategory * 3)
                      .ToList();
                  
                  if (forcedLowCandidates.Any())
                  {
                      candidateSets.AddRange(forcedLowCandidates);
-                     Console.WriteLine($"🌊 ULTRA FORCED LOW WAVE: Selected {forcedLowCandidates.Count} candidates with RTP {forcedLowCandidates.Min(r => r.ExpectedRtp):P0} to {forcedLowCandidates.Max(r => r.ExpectedRtp):P0}");
+                     Console.WriteLine($"🌊 FORCED LOW WAVE: Selected {forcedLowCandidates.Count} candidates with RTP {forcedLowCandidates.Min(r => r.ExpectedRtp):P0} to {forcedLowCandidates.Max(r => r.ExpectedRtp):P0}");
                  }
                  else
                  {
-                     // Fallback: use any low RTP reel sets
-                     var fallbackLow = reelSets.OrderBy(r => r.ExpectedRtp).Take(10).ToList();
+                     // Fallback: use any low RTP reel sets within reasonable range
+                     var fallbackLow = reelSets.Where(r => r.ExpectedRtp <= config.RtpTarget * 0.9).OrderBy(r => r.ExpectedRtp).Take(10).ToList();
                      candidateSets.AddRange(fallbackLow);
-                     Console.WriteLine($"🌊 ULTRA FORCED LOW WAVE FALLBACK: Selected {fallbackLow.Count} candidates");
+                     Console.WriteLine($"🌊 FORCED LOW WAVE FALLBACK: Selected {fallbackLow.Count} candidates");
                  }
              }
              
