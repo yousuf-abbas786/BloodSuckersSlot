@@ -354,8 +354,8 @@ namespace BloodSuckersSlot.Api.Controllers
                         chosenSet.ExpectedRtp,
                         chosenSet.EstimatedHitRate
                     },
-                    rtp = actualRtp,
-                    hitRate = actualHitRate,
+                                         rtp = actualRtp, // Keep as decimal - already converted in SlotEngine
+                     hitRate = actualHitRate, // Keep as decimal - already converted in SlotEngine
                     winningLines = winningLines ?? new List<WinningLine>()
                 });
             }

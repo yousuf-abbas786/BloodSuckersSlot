@@ -398,10 +398,10 @@ namespace BloodSuckersSlot
                 var update = new RtpUpdate
                 {
                     SpinNumber = spinCounter,
-                    ActualRtp = GetActualRtp(),
-                    TargetRtp = _config.RtpTarget,
-                    ActualHitRate = _hitCount * 1.0 / spinCounter,
-                    TargetHitRate = _config.TargetHitRate,
+                    ActualRtp = GetActualRtp() * 100, // Convert to percentage for chart display
+                    TargetRtp = _config.RtpTarget * 100, // Convert to percentage for chart display
+                    ActualHitRate = (_hitCount * 1.0 / spinCounter) * 100, // Convert to percentage for chart display
+                    TargetHitRate = _config.TargetHitRate * 100, // Convert to percentage for chart display
                     Timestamp = DateTime.UtcNow,
                     
                     // Performance metrics

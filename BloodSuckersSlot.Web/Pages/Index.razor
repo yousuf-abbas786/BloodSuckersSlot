@@ -176,7 +176,7 @@
         rtpTargetData.Add(update.TargetRtp);
         hitRateData.Add(update.ActualHitRate);
         hitRateTargetData.Add(update.TargetHitRate);
-        
+
         if (chartsInitialized)
             await UpdateChartsWithNewData();
             
@@ -216,6 +216,14 @@
                     options: {{ 
                         responsive: true,
                         maintainAspectRatio: false,
+                        elements: {{
+                            point: {{
+                                radius: 0
+                            }},
+                            line: {{
+                                tension: 0.4
+                            }}
+                        }},
                         plugins: {{
                             legend: {{
                                 display: true
@@ -255,6 +263,14 @@
                     options: {{ 
                         responsive: true,
                         maintainAspectRatio: false,
+                        elements: {{
+                            point: {{
+                                radius: 0
+                            }},
+                            line: {{
+                                tension: 0.4
+                            }}
+                        }},
                         plugins: {{
                             legend: {{
                                 display: true
