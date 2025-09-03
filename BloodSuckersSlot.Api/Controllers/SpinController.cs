@@ -166,36 +166,30 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
-        // Get reel sets for current RTP needs - OPTIMIZED FOR SPEED AND VARIETY
+        // Get reel sets for current RTP needs - ULTRA AGGRESSIVE FOR MAXIMUM WAVES
         public async Task<List<ReelSet>> GetReelSetsForCurrentRtpAsync(double currentRtp, double targetRtp, GameConfig config)
         {
             var startTime = DateTime.UtcNow;
             var needs = new List<(double min, double max)>();
             
-            // 🎯 ENHANCED RTP RANGE SELECTION for better wave patterns
-            // Add more variety and wider ranges to create natural RTP waves
+            // 🎯 ULTRA AGGRESSIVE RTP RANGE SELECTION for maximum wave patterns
+            // ALWAYS load extreme ranges to ensure dramatic waves and free spins
             
-            if (currentRtp < targetRtp * 0.90)
-            {
-                // Need higher RTP - load wider ranges for more variety
-                needs.Add((currentRtp, targetRtp * 1.3));
-                needs.Add((targetRtp * 1.3, targetRtp * 2.5));
-                needs.Add((targetRtp * 2.5, targetRtp * 4.0)); // Extreme high RTP for variety
-            }
-            else if (currentRtp > targetRtp * 1.10)
-            {
-                // Need lower RTP - load wider ranges for more variety
-                needs.Add((targetRtp * 0.3, currentRtp));
-                needs.Add((targetRtp * 0.1, targetRtp * 0.3));
-                needs.Add((0.05, targetRtp * 0.1)); // Extreme low RTP for variety
-            }
-            else
-            {
-                // Near target - load balanced ranges with more variety
-                needs.Add((targetRtp * 0.7, targetRtp * 1.3));
-                needs.Add((targetRtp * 0.5, targetRtp * 0.7)); // Lower variety
-                needs.Add((targetRtp * 1.3, targetRtp * 1.8)); // Higher variety
-            }
+            // ALWAYS include extreme high RTP ranges for dramatic waves and free spins
+            needs.Add((targetRtp * 1.5, targetRtp * 5.0));  // 132% to 440% - Extreme high for big wins
+            needs.Add((targetRtp * 1.2, targetRtp * 1.5)); // 105.6% to 132% - High for waves
+            
+            // ALWAYS include extreme low RTP ranges for dramatic drops
+            needs.Add((targetRtp * 0.1, targetRtp * 0.5));  // 8.8% to 44% - Extreme low for dry spells
+            needs.Add((targetRtp * 0.5, targetRtp * 0.8)); // 44% to 70.4% - Low for variety
+            
+            // Add balanced ranges for natural flow
+            needs.Add((targetRtp * 0.8, targetRtp * 1.2)); // 70.4% to 105.6% - Balanced range
+            
+            // Add scatter-rich ranges for free spins (typically mid-range RTP)
+            needs.Add((targetRtp * 0.6, targetRtp * 1.0)); // 52.8% to 88% - Scatter-friendly range
+            
+            _logger.LogInformation($"🌊 ULTRA AGGRESSIVE RANGE SELECTION: Loading {needs.Count} extreme ranges for maximum waves and free spins");
             
             // 🚀 PARALLEL LOADING for speed
             var tasks = needs.Select(async (range) => 
@@ -211,6 +205,7 @@ namespace BloodSuckersSlot.Api.Controllers
             var loadTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
             
             _logger.LogInformation($"🎯 LOADED {allReelSets.Count} reel sets for current RTP {currentRtp:F2} (target: {targetRtp:F2}) in {loadTime:F0}ms");
+            _logger.LogInformation($"🌊 RTP RANGES LOADED: {string.Join(", ", needs.Select(r => $"{r.min:F1}-{r.max:F1}"))}");
             
             // Trigger background prefetching for next spins
             _ = Task.Run(async () => await TriggerPrefetchAsync(currentRtp, targetRtp));
@@ -236,9 +231,9 @@ namespace BloodSuckersSlot.Api.Controllers
                 // Calculate likely RTP ranges for next spins
                 var prefetchRanges = new List<(double min, double max)>();
                 
-                // 🎯 ENHANCED PREFETCHING for better wave patterns
-                // Prefetch wider ranges to ensure variety in future spins
-                var rangeSize = targetRtp * _prefetchRangeSize * 1.5; // Increase range size for more variety
+                // 🎯 ULTRA AGGRESSIVE PREFETCHING for maximum waves and free spins
+                // Prefetch extreme ranges to ensure variety in future spins
+                var rangeSize = targetRtp * _prefetchRangeSize * 2.0; // Double range size for maximum variety
                 for (int i = 0; i < _prefetchRangeCount; i++)
                 {
                     var center = currentRtp + (i - _prefetchRangeCount / 2) * rangeSize;
@@ -247,9 +242,14 @@ namespace BloodSuckersSlot.Api.Controllers
                     prefetchRanges.Add((min, max));
                 }
                 
-                // Add extreme ranges for maximum variety
-                prefetchRanges.Add((0.05, targetRtp * 0.3));  // Very low RTP
-                prefetchRanges.Add((targetRtp * 2.0, 5.0));   // Very high RTP
+                // Add extreme ranges for maximum variety and free spins
+                prefetchRanges.Add((0.05, targetRtp * 0.3));   // Very low RTP for dramatic drops
+                prefetchRanges.Add((targetRtp * 0.3, targetRtp * 0.6)); // Low RTP for variety
+                prefetchRanges.Add((targetRtp * 1.5, targetRtp * 3.0)); // High RTP for big wins
+                prefetchRanges.Add((targetRtp * 3.0, 5.0));    // Extreme high RTP for maximum excitement
+                
+                // Add scatter-friendly ranges for free spins
+                prefetchRanges.Add((targetRtp * 0.7, targetRtp * 1.1)); // Mid-range for scatters
                 
                 _logger.LogInformation($"🚀 STARTING PREFETCH: {prefetchRanges.Count} ranges around RTP {currentRtp:F2}");
                 
