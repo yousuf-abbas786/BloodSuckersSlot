@@ -1,64 +1,136 @@
 using BloodSuckersSlot.Api;
+using BloodSuckersSlot.Api.Models;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+// Configure services
+var configuration = builder.Configuration;
+var environment = builder.Environment;
+
+// Bind configuration sections
+var apiSettings = new ApiSettings();
+var performanceSettings = new PerformanceSettings();
+var mongoDbSettings = new MongoDbSettings();
+
+configuration.GetSection("ApiSettings").Bind(apiSettings);
+configuration.GetSection("Performance").Bind(performanceSettings);
+configuration.GetSection("MongoDb").Bind(mongoDbSettings);
+
+// Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddSignalR();
-builder.Services.AddCors(options =>
+
+// Configure Swagger based on environment
+if (apiSettings.EnableSwagger)
 {
-    options.AddDefaultPolicy(policy =>
+    builder.Services.AddSwaggerGen(c =>
     {
-        policy.WithOrigins("http://37.27.71.156:8080", "http://localhost:8080", "http://localhost:3000", "http://localhost:5000")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        c.SwaggerDoc("v1", new OpenApiInfo 
+        { 
+            Title = "BloodSuckers Slot API", 
+            Version = "v1",
+            Description = $"Environment: {configuration["Environment"]} | API for slot game with lazy loading optimization"
+        });
     });
-});
+}
+
+builder.Services.AddSignalR();
+
+// Configure CORS based on settings
+if (apiSettings.EnableCors)
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddDefaultPolicy(policy =>
+        {
+            var origins = apiSettings.CorsOrigins.Length > 0 
+                ? apiSettings.CorsOrigins 
+                : new[] { "http://localhost:3000", "http://localhost:5000", "http://localhost:8080" };
+            
+            policy.WithOrigins(origins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        });
+    });
+}
+
+// Register configuration objects
+builder.Services.AddSingleton(apiSettings);
+builder.Services.AddSingleton(performanceSettings);
+builder.Services.AddSingleton(mongoDbSettings);
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-// Enable Swagger in all environments (Development and Production)
-app.UseSwagger();
-app.UseSwaggerUI();
+// Configure the HTTP request pipeline
+if (apiSettings.EnableSwagger)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "BloodSuckers Slot API v1");
+        c.RoutePrefix = "swagger";
+    });
+}
+
+// Configure error handling based on environment
+if (environment.IsDevelopment() || apiSettings.EnableDetailedErrors)
+{
+    app.UseDeveloperExceptionPage();
+}
+else
+{
+    app.UseExceptionHandler("/Error");
+    app.UseHsts();
+}
 
 // Remove HTTPS redirection for development/testing
 // app.UseHttpsRedirection();
-app.UseCors();
+
+if (apiSettings.EnableCors)
+{
+    app.UseCors();
+}
 
 app.MapControllers();
 
 // Register the SignalR hub endpoint
 app.MapHub<RtpHub>("/rtpHub");
 
-var summaries = new[]
+// Add health check endpoint
+app.MapGet("/health", () => new 
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    Status = "Healthy",
+    Environment = configuration["Environment"],
+    Timestamp = DateTime.UtcNow,
+    Version = "1.0.0",
+    Features = new
+    {
+        LazyLoading = true,
+        Caching = true,
+        Prefetching = true,
+        Swagger = apiSettings.EnableSwagger,
+        Cors = apiSettings.EnableCors
+    }
+});
 
-app.MapGet("/weatherforecast", () =>
+// Add configuration info endpoint (for debugging)
+if (environment.IsDevelopment())
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+    app.MapGet("/config", () => new
+    {
+        Environment = configuration["Environment"],
+        ApiSettings = apiSettings,
+        PerformanceSettings = performanceSettings,
+        MongoDbSettings = new
+        {
+            Database = mongoDbSettings.Database,
+            ConnectionTimeout = mongoDbSettings.ConnectionTimeout,
+            MaxPoolSize = mongoDbSettings.MaxPoolSize
+        }
+    });
+}
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

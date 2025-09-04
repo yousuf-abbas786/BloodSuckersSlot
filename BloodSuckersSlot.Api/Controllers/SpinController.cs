@@ -5,6 +5,8 @@ using MongoDB.Bson;
 using Shared;
 using System.Text.Json;
 using System.Diagnostics;
+using BloodSuckersSlot.Api.Models;
+using Microsoft.AspNetCore.Mvc.ApiExplorer;
 
 namespace BloodSuckersSlot.Api.Controllers
 {
@@ -15,12 +17,14 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly IMongoCollection<BsonDocument> _collection;
         private readonly ILogger<SpinController> _logger;
         private static GameConfig _config;
+        private readonly PerformanceSettings _performanceSettings;
+        private readonly MongoDbSettings _mongoDbSettings;
         
         // Lazy loading with RTP range caching
         private static readonly Dictionary<string, List<ReelSet>> _rtpRangeCache = new();
         private static readonly SemaphoreSlim _cacheLock = new(1);
-        private static readonly int _maxCacheSize = 10000; // Limit cache size
-        private static readonly int _maxReelSetsPerRange = 1000; // Limit reel sets per range
+        private static int _maxCacheSize = 10000; // Will be set from config
+        private static int _maxReelSetsPerRange = 1000; // Will be set from config
         
         // Memory monitoring
         private static long _totalMemoryUsed = 0;
@@ -29,20 +33,30 @@ namespace BloodSuckersSlot.Api.Controllers
         // 🚀 SPIN SPEED OPTIMIZATIONS
         private static readonly Dictionary<string, Task> _prefetchTasks = new();
         private static readonly SemaphoreSlim _prefetchLock = new(1);
-        private static readonly int _prefetchRangeCount = 5; // Prefetch 5 RTP ranges
-        private static readonly double _prefetchRangeSize = 0.1; // 10% RTP range size
+        private static int _prefetchRangeCount = 5; // Will be set from config
+        private static double _prefetchRangeSize = 0.1; // Will be set from config
         private static DateTime _lastPrefetchTime = DateTime.MinValue;
-        private static readonly TimeSpan _prefetchInterval = TimeSpan.FromSeconds(30); // Prefetch every 30 seconds
+        private static TimeSpan _prefetchInterval = TimeSpan.FromSeconds(30); // Will be set from config
 
-        public SpinController(IConfiguration configuration, ILogger<SpinController> logger)
+        public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
+            PerformanceSettings performanceSettings, MongoDbSettings mongoDbSettings)
         {
             _logger = logger;
+            _performanceSettings = performanceSettings;
+            _mongoDbSettings = mongoDbSettings;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
+            
+            // Initialize performance settings from configuration
+            _maxCacheSize = _performanceSettings.MaxCacheSize;
+            _maxReelSetsPerRange = _performanceSettings.MaxReelSetsPerRange;
+            _prefetchRangeCount = _performanceSettings.PrefetchRangeCount;
+            _prefetchRangeSize = _performanceSettings.PrefetchRangeSize;
+            _prefetchInterval = TimeSpan.FromSeconds(_performanceSettings.PrefetchIntervalSeconds);
             
             try
             {
-                var connectionString = configuration["MongoDb:ConnectionString"];
-                var dbName = configuration["MongoDb:Database"];
+                var connectionString = _mongoDbSettings.ConnectionString;
+                var dbName = _mongoDbSettings.Database;
                 
                 _logger.LogInformation($"Connecting to MongoDB: {dbName} at {connectionString?.Split('@').LastOrDefault() ?? "unknown"}");
                 
@@ -103,6 +117,7 @@ namespace BloodSuckersSlot.Api.Controllers
         }
 
         // Lazy loading with RTP range caching
+        [ApiExplorerSettings(IgnoreApi = true)]
         public async Task<List<ReelSet>> GetReelSetsForRtpRangeAsync(double minRtp, double maxRtp, int limit = 1000)
         {
             var cacheKey = $"rtp_{minRtp:F2}_{maxRtp:F2}";
@@ -167,6 +182,7 @@ namespace BloodSuckersSlot.Api.Controllers
         }
 
         // Get reel sets for current RTP needs - ULTRA AGGRESSIVE FOR MAXIMUM WAVES
+        [ApiExplorerSettings(IgnoreApi = true)]
         public async Task<List<ReelSet>> GetReelSetsForCurrentRtpAsync(double currentRtp, double targetRtp, GameConfig config)
         {
             var startTime = DateTime.UtcNow;
@@ -214,6 +230,7 @@ namespace BloodSuckersSlot.Api.Controllers
         }
 
         // 🚀 BACKGROUND PREFETCHING for faster subsequent spins
+        [ApiExplorerSettings(IgnoreApi = true)]
         private async Task TriggerPrefetchAsync(double currentRtp, double targetRtp)
         {
             try
@@ -352,7 +369,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 decimal totalBet = BettingSystem.CalculateTotalBet(_config.BaseBetPerLevel, request.Level, request.CoinValue);
                 
                 // 🚀 TIMEOUT PROTECTION: Add timeout to prevent hanging
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10)); // 10 second timeout
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_performanceSettings.SpinTimeoutSeconds));
                 
                 // Get reel sets based on current RTP needs (lazy loading) with timeout
                 var currentRtp = SpinLogicHelper.GetActualRtp();
