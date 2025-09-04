@@ -949,6 +949,9 @@
                     SpinType = spinResult.GetProperty("spinType").GetString() ?? ""
                 };
 
+                // Debug logging for bonus tracking
+                await JS.InvokeVoidAsync("console.log", $"🎰 BONUS DEBUG: BonusTriggered={lastSpinResult.BonusTriggered}, TotalBonusesTriggered={lastSpinResult.TotalBonusesTriggered}, BonusLog='{lastSpinResult.BonusLog}'");
+
                 // Parse chosen reel set
                 var reelSet = root.GetProperty("chosenReelSet");
                 chosenReelSet = new

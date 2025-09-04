@@ -290,6 +290,8 @@ namespace BloodSuckersSlot.Api.Controllers
             {
                 bonusWin = SlotEvaluationService.SimulateBonusGame(config, currentRtpBeforeSpin);
                 totalWin += bonusWin;
+                _totalBonusesTriggered++; // FIXED: Increment bonus counter when bonus is triggered
+                Console.WriteLine($"🎰 BONUS TRIGGERED! Total bonuses: {_totalBonusesTriggered}");
             }
 
             // FIXED: Apply win caps like original SlotEngine
