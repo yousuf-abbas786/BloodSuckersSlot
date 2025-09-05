@@ -38,5 +38,6 @@ builder.Services.AddScoped(sp =>
 
 builder.Services.AddScoped<BloodSuckersSlot.Web.Services.RtpSignalRService>();
 builder.Services.AddScoped<BloodSuckersSlot.Web.Services.MongoDbService>();
+builder.Services.AddScoped<BloodSuckersSlot.Web.Services.IGamingEntityService, BloodSuckersSlot.Web.Services.GamingEntityService>();
 
 await builder.Build().RunAsync();

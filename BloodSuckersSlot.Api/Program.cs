@@ -1,7 +1,9 @@
 using BloodSuckersSlot.Api;
 using BloodSuckersSlot.Api.Models;
+using BloodSuckersSlot.Api.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.OpenApi.Models;
+using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +23,9 @@ configuration.GetSection("MongoDb").Bind(mongoDbSettings);
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// Add response caching
+builder.Services.AddResponseCaching();
 
 // Configure Swagger based on environment
 if (apiSettings.EnableSwagger)
@@ -62,6 +67,23 @@ builder.Services.AddSingleton(apiSettings);
 builder.Services.AddSingleton(performanceSettings);
 builder.Services.AddSingleton(mongoDbSettings);
 
+// Register MongoDB services
+builder.Services.AddSingleton<IMongoClient>(provider =>
+{
+    var settings = provider.GetRequiredService<MongoDbSettings>();
+    return new MongoClient(settings.ConnectionString);
+});
+
+builder.Services.AddSingleton<IMongoDatabase>(provider =>
+{
+    var client = provider.GetRequiredService<IMongoClient>();
+    var settings = provider.GetRequiredService<MongoDbSettings>();
+    return client.GetDatabase(settings.Database);
+});
+
+// Register gaming entity service
+builder.Services.AddScoped<IGamingEntityService, GamingEntityService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
@@ -94,10 +116,14 @@ if (apiSettings.EnableCors)
     app.UseCors();
 }
 
+// Add response caching middleware
+app.UseResponseCaching();
+
 app.MapControllers();
 
-// Register the SignalR hub endpoint
+// Register the SignalR hub endpoints
 app.MapHub<RtpHub>("/rtpHub");
+app.MapHub<GamingEntityHub>("/gamingEntityHub");
 
 // Add health check endpoint
 app.MapGet("/health", () => new 

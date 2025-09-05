@@ -101,3 +101,30 @@ a, .btn-link {
 code {
     color: #c02d76;
 }
+
+/* Custom icon fallbacks for buttons */
+.btn-icon-fallback {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+.btn-icon-fallback.expand::before {
+    content: "▼";
+}
+
+.btn-icon-fallback.collapse::before {
+    content: "▶";
+}
+
+.btn-icon-fallback.view::before {
+    content: "👁";
+}
+
+.btn-icon-fallback.edit::before {
+    content: "✏";
+}
+
+.btn-icon-fallback.delete::before {
+    content: "🗑";
+}
