@@ -8,7 +8,7 @@ namespace BloodSuckersSlot.Web.Services
         Task<BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>> GetEntitiesAsync(GamingEntityFilter filter);
         Task<List<GamingEntityListItem>> GetHierarchicalEntitiesAsync();
         Task<List<GamingEntityListItem>> GetHierarchicalEntitiesLightAsync();
-        Task<GamingEntityDetail?> GetEntityByIdAsync(string id);
+        Task<GamingEntityDetail?> GetEntityByIdAsync(string id, string? cacheBuster = null);
         Task<GamingEntityHierarchy?> GetEntityHierarchyAsync(string id);
         Task<List<GamingEntityListItem>> GetChildrenAsync(string parentId);
         Task<GamingEntityDetail?> CreateEntityAsync(GamingEntity entity);
@@ -153,12 +153,20 @@ namespace BloodSuckersSlot.Web.Services
             }
         }
 
-        public async Task<GamingEntityDetail?> GetEntityByIdAsync(string id)
+        public async Task<GamingEntityDetail?> GetEntityByIdAsync(string id, string? cacheBuster = null)
         {
             try
             {
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
-                var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/gamingentities/{id}");
+                var url = $"{apiBaseUrl}/api/gamingentities/{id}";
+                
+                // Add cache-busting parameter if provided
+                if (!string.IsNullOrEmpty(cacheBuster))
+                {
+                    url += $"?_t={cacheBuster}";
+                }
+                
+                var response = await _httpClient.GetAsync(url);
                 
                 if (response.IsSuccessStatusCode)
                 {

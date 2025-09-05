@@ -225,7 +225,7 @@
             <div class="col-md-8">
                 <h1 class="h3 mb-2 fw-bold">
                     <i class="fas fa-sitemap me-3"></i>
-                    Gaming Entities Management
+                Gaming Entities Management
                 </h1>
                 <p class="mb-0 opacity-75">Comprehensive management system for hierarchical gaming entities</p>
             </div>
@@ -240,47 +240,47 @@
     <!-- Professional Filter Panel -->
     <div class="filter-panel p-4 mb-4">
         <div class="row align-items-end">
-            <div class="col-md-2">
+                        <div class="col-md-2">
                 <label class="form-label fw-semibold text-muted mb-2">Super Agent</label>
                 <select class="form-select filter-select" @bind="selectedSuperAgentId" @bind:after="OnSuperAgentChanged">
                     <option value="">All Super Agents</option>
-                    @foreach (var superAgent in superAgents)
-                    {
-                        <option value="@superAgent.Id">@superAgent.Username</option>
-                    }
-                </select>
-            </div>
-            <div class="col-md-2">
+                                @foreach (var superAgent in superAgents)
+                                {
+                                    <option value="@superAgent.Id">@superAgent.Username</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
                 <label class="form-label fw-semibold text-muted mb-2">Agent</label>
                 <select class="form-select filter-select" @bind="selectedAgentId" @bind:after="OnAgentChanged">
                     <option value="">All Agents</option>
-                    @foreach (var agent in agents)
-                    {
-                        <option value="@agent.Id">@agent.Username</option>
-                    }
-                </select>
-            </div>
-            <div class="col-md-2">
+                                @foreach (var agent in agents)
+                                {
+                                    <option value="@agent.Id">@agent.Username</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
                 <label class="form-label fw-semibold text-muted mb-2">Token</label>
                 <select class="form-select filter-select" @bind="selectedTokenId" @bind:after="OnTokenChanged">
                     <option value="">All Tokens</option>
-                    @foreach (var token in tokens)
-                    {
-                        <option value="@token.Id">@token.Username</option>
-                    }
-                </select>
-            </div>
-            <div class="col-md-2">
+                                @foreach (var token in tokens)
+                                {
+                                    <option value="@token.Id">@token.Username</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
                 <label class="form-label fw-semibold text-muted mb-2">Group</label>
                 <select class="form-select filter-select" @bind="selectedGroupId" @bind:after="OnGroupChanged">
                     <option value="">All Groups</option>
-                    @foreach (var group in groups)
-                    {
-                        <option value="@group.Id">@group.Username</option>
-                    }
-                </select>
-            </div>
-            <div class="col-md-2">
+                                @foreach (var group in groups)
+                                {
+                                    <option value="@group.Id">@group.Username</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
                 <div class="d-flex gap-2">
                     @if (HasActiveFilters())
                     {
@@ -290,11 +290,11 @@
                     }
                     <button class="btn btn-primary btn-sm" @onclick="ApplyFilters">
                         <i class="fas fa-filter me-1"></i>Apply
-                    </button>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-    </div>
 
     <!-- Statistics Cards -->
     <div class="row mb-4">
@@ -364,7 +364,7 @@
                         {
                             <div class="d-flex align-items-center text-muted">
                                 <div class="spinner-border spinner-border-sm me-2" role="status">
-                                    <span class="visually-hidden">Loading...</span>
+                                <span class="visually-hidden">Loading...</span>
                                 </div>
                                 <small>Loading entities...</small>
                             </div>
@@ -372,118 +372,118 @@
                     </div>
                 </div>
                 
-                @if (entities.Items.Any())
-                {
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead class="table-light">
-                                <tr>
+                    @if (entities.Items.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
                                     <th style="width: 50px;" class="text-center">Expand</th>
                                     <th>Role</th>
                                     <th>Entity Details</th>
                                     <th>Parent</th>
                                     <th>Status</th>
                                     <th>Last Activity</th>
-                                    <th style="width: 120px;" class="text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var hierarchicalEntity in GetHierarchicalEntities())
-                                {
-                                    var entity = hierarchicalEntity.Entity;
-                                    <tr class="@(selectedEntityId == entity.Id ? "table-active" : "")" 
-                                        style="cursor: pointer;" 
-                                        @onclick="() => SelectEntity(entity.Id)">
-                                        <td class="text-center">
-                                            @if (hierarchicalEntity.HasChildren)
-                                            {
+                                        <th style="width: 120px;" class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var hierarchicalEntity in GetHierarchicalEntities())
+                                    {
+                                        var entity = hierarchicalEntity.Entity;
+                                        <tr class="@(selectedEntityId == entity.Id ? "table-active" : "")" 
+                                            style="cursor: pointer;" 
+                                            @onclick="() => SelectEntity(entity.Id)">
+                                            <td class="text-center">
+                                                @if (hierarchicalEntity.HasChildren)
+                                                {
                                                 <button class="btn btn-sm btn-outline-primary expand-btn" 
-                                                        @onclick="() => ToggleEntity(entity.Id)" 
-                                                        @onclick:stopPropagation="true"
-                                                        title="@(expandedEntities.GetValueOrDefault(entity.Id, true) ? "Collapse" : "Expand")">
+                                                            @onclick="() => ToggleEntity(entity.Id)" 
+                                                            @onclick:stopPropagation="true"
+                                                            title="@(expandedEntities.GetValueOrDefault(entity.Id, true) ? "Collapse" : "Expand")">
                                                     <i class="fas fa-chevron-@(expandedEntities.GetValueOrDefault(entity.Id, true) ? "down" : "right")"></i>
-                                                </button>
-                                            }
-                                        </td>
-                                        <td>
+                                                    </button>
+                                                }
+                                            </td>
+                                            <td>
                                             <span class="role-badge bg-@GetRoleColor(entity.Role)">
-                                                @entity.Role.ToString().Replace("_", " ")
-                                            </span>
-                                        </td>
-                                        <td>
+                                                    @entity.Role.ToString().Replace("_", " ")
+                                                </span>
+                                            </td>
+                                            <td>
                                             <div>
                                                 <div class="fw-semibold">@entity.Username</div>
-                                                @if (!string.IsNullOrEmpty(entity.Email))
-                                                {
+                                                    @if (!string.IsNullOrEmpty(entity.Email))
+                                                    {
                                                     <small class="text-muted">@entity.Email</small>
+                                                    }
+                                                </div>
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrEmpty(hierarchicalEntity.ParentName))
+                                                {
+                                                    <span class="text-muted">@hierarchicalEntity.ParentName</span>
                                                 }
-                                            </div>
-                                        </td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(hierarchicalEntity.ParentName))
-                                            {
-                                                <span class="text-muted">@hierarchicalEntity.ParentName</span>
-                                            }
-                                            else
-                                            {
+                                                else
+                                                {
                                                 <span class="text-muted">Root Level</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <div class="form-check form-switch">
-                                                <input class="form-check-input" 
-                                                       type="checkbox" 
-                                                       checked="@entity.Active"
-                                                       @onchange="() => ToggleActive(entity.Id)"
-                                                       @onclick:stopPropagation="true">
-                                            </div>
-                                        </td>
-                                        <td>
-                                            @if (entity.LastLoginDate.HasValue)
-                                            {
+                                                }
+                                            </td>
+                                            <td>
+                                                <div class="form-check form-switch">
+                                                    <input class="form-check-input" 
+                                                           type="checkbox" 
+                                                           checked="@entity.Active"
+                                                           @onchange="() => ToggleActive(entity.Id)"
+                                                           @onclick:stopPropagation="true">
+                                                </div>
+                                            </td>
+                                            <td>
+                                                @if (entity.LastLoginDate.HasValue)
+                                                {
                                                 <span class="text-success">@entity.LastLoginDate.Value.ToString("MMM dd, HH:mm")</span>
-                                            }
-                                            else
-                                            {
+                                                }
+                                                else
+                                                {
                                                 <span class="text-muted">Never</span>
-                                            }
-                                        </td>
-                                        <td class="text-center">
+                                                }
+                                            </td>
+                                            <td class="text-center">
                                             <div class="d-flex gap-1 justify-content-center">
                                                 <button class="btn btn-outline-primary action-btn" 
-                                                        @onclick="() => ViewEntity(entity.Id)"
-                                                        @onclick:stopPropagation="true"
+                                                            @onclick="() => ViewEntity(entity.Id)"
+                                                            @onclick:stopPropagation="true"
                                                         title="View Details">
                                                     <i class="fas fa-eye"></i>
-                                                </button>
+                                                    </button>
                                                 <button class="btn btn-outline-secondary action-btn" 
-                                                        @onclick="() => EditEntity(entity.Id)"
-                                                        @onclick:stopPropagation="true"
+                                                            @onclick="() => EditEntity(entity.Id)"
+                                                            @onclick:stopPropagation="true"
                                                         title="Edit Entity">
                                                     <i class="fas fa-pen"></i>
-                                                </button>
+                                                    </button>
                                                 <button class="btn btn-outline-danger action-btn" 
-                                                        @onclick="() => DeleteEntity(entity.Id)"
-                                                        @onclick:stopPropagation="true"
+                                                            @onclick="() => DeleteEntity(entity.Id)"
+                                                            @onclick:stopPropagation="true"
                                                         title="Delete Entity">
                                                     <i class="fas fa-trash-alt"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                else
-                {
-                    <div class="text-center py-5">
-                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-5">
+                            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
                         <h5 class="text-muted">No entities found</h5>
                         <p class="text-muted">Try adjusting your filters or add a new entity</p>
-                    </div>
-                }
+                        </div>
+                    }
             </div>
         </div>
 
@@ -498,13 +498,13 @@
                             <div class="d-flex gap-1">
                                 <button class="btn btn-outline-primary action-btn" @onclick="EditEntity" title="Edit Entity">
                                     <i class="fas fa-pen"></i>
-                                </button>
+                            </button>
                                 <button class="btn btn-outline-danger action-btn" @onclick="DeleteEntity" title="Delete Entity">
                                     <i class="fas fa-trash-alt"></i>
-                                </button>
-                            </div>
+                            </button>
                         </div>
                     </div>
+                            </div>
                     <div class="p-4">
                         <!-- Basic Information Section -->
                         <div class="detail-section">
@@ -521,17 +521,17 @@
                                 <div class="detail-label">Role</div>
                                 <div class="mt-1">
                                     <span class="role-badge bg-@GetRoleColor(selectedEntity.Role)">
-                                        @selectedEntity.Role.ToString().Replace("_", " ")
-                                    </span>
-                                </div>
+                                    @selectedEntity.Role.ToString().Replace("_", " ")
+                                </span>
                             </div>
+                        </div>
                             @if (!string.IsNullOrEmpty(selectedEntity.Email))
                             {
                                 <div class="detail-field">
                                     <div class="detail-label">Email</div>
                                     <div class="detail-value">@selectedEntity.Email</div>
-                                </div>
-                            }
+                            </div>
+                        }
                         </div>
 
                         <!-- Hierarchy Section -->
@@ -550,33 +550,33 @@
                                         <div class="hierarchy-role">Super Agent</div>
                                     </div>
                                 </div>
-                                @if (!string.IsNullOrEmpty(selectedEntity.AgentId))
-                                {
+                        @if (!string.IsNullOrEmpty(selectedEntity.AgentId))
+                        {
                                     <div class="hierarchy-item level-2">
                                         <div class="hierarchy-level bg-warning text-white">2</div>
                                         <div class="hierarchy-info">
                                             <div class="hierarchy-name">@GetEntityName(selectedEntity.AgentId)</div>
                                             <div class="hierarchy-role">Agent</div>
-                                        </div>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(selectedEntity.TokenId))
-                                {
+                                </div>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(selectedEntity.TokenId))
+                        {
                                     <div class="hierarchy-item level-3">
                                         <div class="hierarchy-level bg-info text-white">3</div>
                                         <div class="hierarchy-info">
                                             <div class="hierarchy-name">@GetEntityName(selectedEntity.TokenId)</div>
                                             <div class="hierarchy-role">Token</div>
-                                        </div>
-                                    </div>
-                                }
+                                </div>
+                            </div>
+                        }
                                 <div class="hierarchy-item level-@(selectedEntity.Role == EntityRole.GROUP ? "4" : "3")">
                                     <div class="hierarchy-level bg-success text-white">@(selectedEntity.Role == EntityRole.GROUP ? "4" : "3")</div>
                                     <div class="hierarchy-info">
                                         <div class="hierarchy-name">@selectedEntity.Username</div>
                                         <div class="hierarchy-role">@selectedEntity.Role.ToString().Replace("_", " ")</div>
-                                    </div>
-                                </div>
+                            </div>
+                        </div>
                             </div>
                         }
 
@@ -586,7 +586,7 @@
                                 <h6 class="detail-section-title">
                                     <i class="fas fa-cog me-2"></i>Configuration
                                 </h6>
-                            </div>
+                                    </div>
                             <div class="detail-field">
                                 <div class="detail-label">Status</div>
                                 <div class="d-flex align-items-center">
@@ -601,6 +601,28 @@
                                     </span>
                                 </div>
                             </div>
+                            
+                            @if (selectedEntity.Role == EntityRole.GROUP)
+                            {
+                        @if (!string.IsNullOrEmpty(selectedEntity.Currency))
+                        {
+                                    <div class="detail-field">
+                                        <div class="detail-label">Currency</div>
+                                        <div class="detail-value">
+                                            <span class="badge bg-primary">@selectedEntity.Currency</span>
+                                </div>
+                            </div>
+                        }
+                        @if (selectedEntity.Rtp.HasValue)
+                        {
+                                    <div class="detail-field">
+                                        <div class="detail-label">RTP</div>
+                                        <div class="detail-value">
+                                            <span class="badge bg-info">@selectedEntity.Rtp%</span>
+                                </div>
+                            </div>
+                        }
+                            }
                         </div>
 
                         <!-- Activity Section -->
@@ -609,7 +631,7 @@
                                 <h6 class="detail-section-title">
                                     <i class="fas fa-clock me-2"></i>Activity Information
                                 </h6>
-                            </div>
+                                </div>
                             @if (selectedEntity.LastLoginDate.HasValue)
                             {
                                 <div class="detail-field">
@@ -617,8 +639,8 @@
                                     <div class="detail-value text-success">
                                         <i class="fas fa-sign-in-alt me-1"></i>
                                         @selectedEntity.LastLoginDate.Value.ToString("MMM dd, yyyy HH:mm:ss")
-                                    </div>
-                                </div>
+                            </div>
+                        </div>
                             }
                             else
                             {
@@ -626,19 +648,19 @@
                                     <div class="detail-label">Last Login</div>
                                     <div class="detail-value text-muted">
                                         <i class="fas fa-times-circle me-1"></i>Never
-                                    </div>
                                 </div>
-                            }
-                            @if (selectedEntity.InsertDate.HasValue)
-                            {
+                            </div>
+                        }
+                        @if (selectedEntity.InsertDate.HasValue)
+                        {
                                 <div class="detail-field">
                                     <div class="detail-label">Created</div>
                                     <div class="detail-value">
                                         <i class="fas fa-calendar-plus me-1"></i>
                                         @selectedEntity.InsertDate.Value.ToString("MMM dd, yyyy HH:mm:ss")
-                                    </div>
                                 </div>
-                            }
+                            </div>
+                        }
                         </div>
                     </div>
                 </div>
@@ -656,6 +678,147 @@
         </div>
     </div>
 </div>
+
+<!-- Edit Entity Modal -->
+@if (showEditModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Gaming Entity</h5>
+                    <button type="button" class="btn-close" @onclick="() => showEditModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Username</label>
+                                <input type="text" class="form-control" @bind="selectedEntity.Username" />
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Role</label>
+                                <select class="form-select" @onchange="OnRoleChanged">
+                                    <option value="@EntityRole.SUPER_AGENT" selected="@(selectedEntity.Role == EntityRole.SUPER_AGENT)">SUPER AGENT</option>
+                                    <option value="@EntityRole.AGENT" selected="@(selectedEntity.Role == EntityRole.AGENT)">AGENT</option>
+                                    <option value="@EntityRole.TOKEN" selected="@(selectedEntity.Role == EntityRole.TOKEN)">TOKEN</option>
+                                    <option value="@EntityRole.GROUP" selected="@(selectedEntity.Role == EntityRole.GROUP)">GROUP</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" @bind="selectedEntity.Email" />
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Active</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" @bind="selectedEntity.Active" />
+                                    <label class="form-check-label">Active</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Parent Relationship Fields -->
+                    @if (selectedEntity.Role == EntityRole.AGENT || selectedEntity.Role == EntityRole.TOKEN || selectedEntity.Role == EntityRole.GROUP)
+                    {
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Super Agent</label>
+                                    <select class="form-select" @bind="selectedEntity.SuperAgentId">
+                                        <option value="">Select Super Agent</option>
+                                        @foreach (var superAgent in superAgents)
+                                        {
+                                            <option value="@superAgent.Id">@superAgent.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    
+                    @if (selectedEntity.Role == EntityRole.TOKEN || selectedEntity.Role == EntityRole.GROUP)
+                    {
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Agent</label>
+                                    <select class="form-select" @bind="selectedEntity.AgentId">
+                                        <option value="">Select Agent</option>
+                                        @foreach (var agent in agents.Where(a => a.SuperAgentId == selectedEntity.SuperAgentId))
+                                        {
+                                            <option value="@agent.Id">@agent.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    
+                    @if (selectedEntity.Role == EntityRole.GROUP)
+                    {
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Token</label>
+                                    <select class="form-select" @bind="selectedEntity.TokenId">
+                                        <option value="">Select Token</option>
+                                        @foreach (var token in tokens.Where(t => t.AgentId == selectedEntity.AgentId))
+                                        {
+                                            <option value="@token.Id">@token.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Currency and RTP fields for GROUP entities -->
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Currency</label>
+                                    <select class="form-select" @bind="selectedEntity.Currency">
+                                        <option value="">Select Currency</option>
+                                        <option value="USD">USD</option>
+                                        <option value="EUR">EUR</option>
+                                        <option value="GBP">GBP</option>
+                                        <option value="CAD">CAD</option>
+                                        <option value="AUD">AUD</option>
+                                        <option value="JPY">JPY</option>
+                                        <option value="CHF">CHF</option>
+                                        <option value="SEK">SEK</option>
+                                        <option value="NOK">NOK</option>
+                                        <option value="DKK">DKK</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">RTP (%)</label>
+                                    <input type="number" class="form-control" @bind="selectedEntity.Rtp" min="0" max="100" step="0.01" placeholder="e.g., 96.5" />
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showEditModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="UpdateEntity">Update Entity</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
 
 <!-- Create Entity Modal -->
 @if (showCreateModal)
@@ -758,6 +921,34 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <!-- Currency and RTP fields for GROUP entities -->
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Currency</label>
+                                    <select class="form-select" @bind="selectedEntity.Currency">
+                                        <option value="">Select Currency</option>
+                                        <option value="USD">USD</option>
+                                        <option value="EUR">EUR</option>
+                                        <option value="GBP">GBP</option>
+                                        <option value="CAD">CAD</option>
+                                        <option value="AUD">AUD</option>
+                                        <option value="JPY">JPY</option>
+                                        <option value="CHF">CHF</option>
+                                        <option value="SEK">SEK</option>
+                                        <option value="NOK">NOK</option>
+                                        <option value="DKK">DKK</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">RTP (%)</label>
+                                    <input type="number" class="form-control" @bind="selectedEntity.Rtp" min="0" max="100" step="0.01" placeholder="e.g., 96.5" />
+                                </div>
+                            </div>
+                        </div>
                     }
                 </div>
                 <div class="modal-footer">
@@ -817,6 +1008,10 @@
         isLoading = true;
         try
         {
+            // Clear any existing cached data
+            entities = new BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>();
+            originalEntities = new BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>();
+            
             // Load all entities in one call
             var filter = new GamingEntityFilter
             {
@@ -939,7 +1134,9 @@
         
         try
         {
-            selectedEntity = await GamingEntityService.GetEntityByIdAsync(id);
+            // Force fresh data by adding cache-busting parameter
+            var cacheBuster = DateTime.UtcNow.Ticks.ToString();
+            selectedEntity = await GamingEntityService.GetEntityByIdAsync(id, cacheBuster);
         }
         catch (Exception ex)
         {
@@ -1044,14 +1241,80 @@
                 if (createdEntity != null)
                 {
                     showCreateModal = false;
-                    await LoadEntities(); // Refresh the list
+                    
+                    // Clear both listing and detail cache
                     selectedEntity = null;
+                    entities = new BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>();
+                    originalEntities = new BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>();
+                    
+                    // Refresh all data
+                    await LoadAllData();
+                    StateHasChanged();
                 }
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error creating entity: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateEntity()
+    {
+        try
+        {
+            if (selectedEntity != null)
+            {
+                // Convert GamingEntityDetail to GamingEntity
+                var entityToUpdate = new GamingEntity
+                {
+                    Username = selectedEntity.Username,
+                    Role = selectedEntity.Role,
+                    Email = selectedEntity.Email,
+                    Active = selectedEntity.Active,
+                    SuperAgentId = selectedEntity.SuperAgentId,
+                    AgentId = selectedEntity.AgentId,
+                    TokenId = selectedEntity.TokenId,
+                    Currency = selectedEntity.Currency,
+                    Rtp = selectedEntity.Rtp,
+                    GameProviderProfit = selectedEntity.GameProviderProfit,
+                    NetworkProfitPercent = selectedEntity.NetworkProfitPercent,
+                    SubsidiaryName = selectedEntity.SubsidiaryName,
+                    Region = selectedEntity.Region,
+                    ClientName = selectedEntity.ClientName,
+                    ClientType = selectedEntity.ClientType,
+                    Endpoint = selectedEntity.Endpoint,
+                    PublicKey = selectedEntity.PublicKey,
+                    TokenActive = selectedEntity.TokenActive,
+                    ApiConfig = selectedEntity.ApiConfig,
+                    TemplateGameLimit = selectedEntity.TemplateGameLimit,
+                    GroupReference = selectedEntity.GroupReference,
+                    ShopName = selectedEntity.ShopName,
+                    ShopType = selectedEntity.ShopType,
+                    GameLimits = selectedEntity.GameLimits,
+                    TokenEndpoint = selectedEntity.TokenEndpoint,
+                    TokenPublicKey = selectedEntity.TokenPublicKey
+                };
+
+                var updatedEntity = await GamingEntityService.UpdateEntityAsync(selectedEntity.Id, entityToUpdate);
+                if (updatedEntity != null)
+                {
+                    showEditModal = false;
+                    
+                    // Clear both listing and detail cache
+                    selectedEntity = null;
+                    entities = new BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>();
+                    originalEntities = new BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>();
+                    
+                    // Refresh all data
+                    await LoadAllData();
+                    StateHasChanged();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating entity: {ex.Message}");
         }
     }
 
@@ -1248,9 +1511,22 @@
         StateHasChanged(); // Trigger UI refresh
     }
 
-    private void EditEntity(string id)
+    private async Task EditEntity(string id)
     {
-        Navigation.NavigateTo($"/gaming-entities/{id}/edit");
+        try
+        {
+            // Load the entity details for editing
+            selectedEntity = await GamingEntityService.GetEntityByIdAsync(id);
+            if (selectedEntity != null)
+            {
+                selectedEntityId = id;
+                showEditModal = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading entity for edit: {ex.Message}");
+        }
     }
 
     private async Task DeleteEntity(string id)
@@ -1279,11 +1555,24 @@
         Navigation.NavigateTo($"/gaming-entities/{id}");
     }
 
-    private void EditEntity()
+    private async Task EditEntity()
     {
         if (selectedEntity != null)
         {
-            Navigation.NavigateTo($"/gaming-entities/{selectedEntity.Id}/edit");
+            try
+            {
+                // Load the full entity details for editing
+                var entityDetails = await GamingEntityService.GetEntityByIdAsync(selectedEntity.Id);
+                if (entityDetails != null)
+                {
+                    selectedEntity = entityDetails;
+                    showEditModal = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading entity for edit: {ex.Message}");
+            }
         }
     }
 
