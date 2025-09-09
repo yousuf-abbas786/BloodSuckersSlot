@@ -1,6 +1,13 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+﻿@using BloodSuckersSlot.Web.Services
+@using BloodSuckersSlot.Shared.Models
+@inject IAuthService AuthService
+
+<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="">BloodSuckersSlot.Web</a>
+        <a class="navbar-brand" href="">
+            <i class="fas fa-vampire"></i>
+            BloodSuckers Slot
+        </a>
         <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
             <span class="navbar-toggler-icon"></span>
         </button>
@@ -9,46 +16,64 @@
 
 <div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
     <nav class="flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="reelsets">
-                <span class="bi bi-database-fill-nav-menu" aria-hidden="true"></span> Reel Sets
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="spin">
-                <span class="bi bi-play-circle-fill-nav-menu" aria-hidden="true"></span> Spin
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="gaming-entities">
-                <span class="bi bi-sitemap-nav-menu" aria-hidden="true"></span> Gaming Entities
-            </NavLink>
-        </div>
+        @if (currentUser != null)
+        {
+            <!-- Home - Accessible by Admin and Player -->
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <i class="fas fa-home" aria-hidden="true"></i> Home
+                </NavLink>
+            </div>
+
+            <!-- Spin - Accessible by Admin and Player -->
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="spin">
+                    <i class="fas fa-play-circle" aria-hidden="true"></i> Spin
+                </NavLink>
+            </div>
+
+            @if (currentUser.Role == EntityRole.ADMIN)
+            {
+                <!-- Admin-only sections -->
+                <div class="nav-divider"></div>
+                <div class="nav-section-title">Admin Panel</div>
+                
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="reelsets">
+                        <i class="fas fa-database" aria-hidden="true"></i> Reel Sets
+                    </NavLink>
+                </div>
+                
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="gamingentities">
+                        <i class="fas fa-sitemap" aria-hidden="true"></i> Gaming Entities
+                    </NavLink>
+                </div>
+            }
+        }
     </nav>
 </div>
 
 @code {
     private bool collapseNavMenu = true;
+    private EntityInfo? currentUser;
 
     private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
 
     private void ToggleNavMenu()
     {
         collapseNavMenu = !collapseNavMenu;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            currentUser = await AuthService.GetCurrentEntityAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading user info in NavMenu: {ex.Message}");
+        }
     }
 }

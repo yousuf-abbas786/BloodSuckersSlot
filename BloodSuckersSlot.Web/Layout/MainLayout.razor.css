@@ -21,6 +21,52 @@ main {
     align-items: center;
 }
 
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.user-details {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.user-name {
+    font-weight: 500;
+    color: #495057;
+    font-size: 0.9rem;
+}
+
+.user-name i {
+    margin-right: 5px;
+    color: #007bff;
+}
+
+.user-role {
+    background-color: #e9ecef;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #495057;
+}
+
+.user-role i {
+    margin-right: 4px;
+    color: #28a745;
+}
+
+.logout-btn {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+}
+
+.logout-btn i {
+    margin-right: 4px;
+}
+
     .top-row ::deep a, .top-row ::deep .btn-link {
         white-space: nowrap;
         margin-left: 1.5rem;

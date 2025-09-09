@@ -4,6 +4,12 @@ using BloodSuckersSlot.Api.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Conventions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -81,8 +87,37 @@ builder.Services.AddSingleton<IMongoDatabase>(provider =>
     return client.GetDatabase(settings.Database);
 });
 
-// Register gaming entity service
+// Configure JWT authentication
+var jwtSecretKey = configuration["Jwt:SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
+var jwtIssuer = configuration["Jwt:Issuer"] ?? "BloodSuckersSlot";
+var jwtAudience = configuration["Jwt:Audience"] ?? "BloodSuckersSlotUsers";
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(jwtSecretKey)),
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("ADMIN"));
+    options.AddPolicy("PlayerOrAdmin", policy => policy.RequireRole("ADMIN", "PLAYER"));
+});
+
+// Register services
 builder.Services.AddScoped<IGamingEntityService, GamingEntityService>();
+builder.Services.AddScoped<IGamingEntityAuthService, GamingEntityAuthService>();
+builder.Services.AddScoped<IJwtService, JwtService>();
 
 var app = builder.Build();
 
@@ -119,11 +154,30 @@ if (apiSettings.EnableCors)
 // Add response caching middleware
 app.UseResponseCaching();
 
+// Add authentication and authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapControllers();
 
 // Register the SignalR hub endpoints
 app.MapHub<RtpHub>("/rtpHub");
 app.MapHub<GamingEntityHub>("/gamingEntityHub");
+
+// Create default admin entity on startup
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var entityAuthService = scope.ServiceProvider.GetRequiredService<IGamingEntityAuthService>();
+        await entityAuthService.CreateDefaultAdminAsync();
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Error creating default admin entity");
+    }
+}
 
 // Add health check endpoint
 app.MapGet("/health", () => new 

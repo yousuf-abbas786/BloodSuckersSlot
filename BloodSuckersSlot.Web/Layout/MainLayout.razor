@@ -1,4 +1,10 @@
 ﻿@inherits LayoutComponentBase
+@using BloodSuckersSlot.Web.Services
+@using BloodSuckersSlot.Shared.Models
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
 <div class="page">
     <div class="sidebar">
         <NavMenu />
@@ -6,7 +12,25 @@
 
     <main>
         <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            <div class="user-info">
+                @if (currentUser != null)
+                {
+                    <div class="user-details">
+                        <span class="user-name">
+                            <i class="fas fa-user"></i>
+                            @currentUser.FirstName @currentUser.LastName (@currentUser.Username)
+                        </span>
+                        <span class="user-role">
+                            <i class="fas fa-shield-alt"></i>
+                            @currentUser.Role.ToString()
+                        </span>
+                        <button class="btn btn-outline-danger btn-sm logout-btn" @onclick="Logout">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Logout
+                        </button>
+                    </div>
+                }
+            </div>
         </div>
 
         <article class="content px-4">
@@ -14,3 +38,32 @@
         </article>
     </main>
 </div>
+@code {
+    private EntityInfo? currentUser;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            currentUser = await AuthService.GetCurrentEntityAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading user info: {ex.Message}");
+        }
+    }
+
+    private async Task Logout()
+    {
+        try
+        {
+            await AuthService.LogoutAsync();
+            Navigation.NavigateTo("/login", true);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error during logout: {ex.Message}");
+        }
+    }
+}
+

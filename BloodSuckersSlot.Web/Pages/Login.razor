@@ -1,0 +1,204 @@
+@page "/login"
+@using BloodSuckersSlot.Web.Services
+@using BloodSuckersSlot.Shared.Models
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="vampire-icon">🧛</div>
+            <h2>BloodSuckers Slot</h2>
+            <p>Please sign in to continue</p>
+        </div>
+
+        <EditForm Model="loginModel" OnValidSubmit="HandleLogin">
+            <DataAnnotationsValidator />
+            
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" @bind-value="loginModel.Username" @bind-value:event="oninput" class="form-control" placeholder="Enter username" />
+                <ValidationMessage For="@(() => loginModel.Username)" />
+            </div>
+
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" @bind-value="loginModel.Password" @bind-value:event="oninput" class="form-control" placeholder="Enter password" />
+                <ValidationMessage For="@(() => loginModel.Password)" />
+            </div>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger">
+                    @errorMessage
+                </div>
+            }
+
+            <button type="submit" class="btn btn-primary" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span>Signing In...</span>
+                }
+                else
+                {
+                    <span>Sign In</span>
+                }
+            </button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private EntityLoginRequest loginModel = new();
+    private bool isLoading = false;
+    private string errorMessage = string.Empty;
+
+    private async Task HandleLogin()
+    {
+        isLoading = true;
+        errorMessage = string.Empty;
+        
+        try
+        {
+            var response = await AuthService.LoginAsync(loginModel.Username, loginModel.Password);
+            if (response != null && response.Success)
+            {
+                Navigation.NavigateTo("/", true);
+            }
+            else
+            {
+                errorMessage = response?.ErrorMessage ?? "Invalid username or password";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Login failed: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+}
+
+<style>
+    .login-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .login-card {
+        background: rgba(255, 255, 255, 0.95);
+        padding: 40px;
+        border-radius: 20px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 450px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .login-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .login-header h2 {
+        color: #2c3e50;
+        margin-bottom: 10px;
+        font-size: 2.2rem;
+        font-weight: 700;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .login-header p {
+        color: #7f8c8d;
+        margin: 0;
+        font-size: 1.1rem;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: #2c3e50;
+        font-size: 0.95rem;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 15px;
+        border: 2px solid #e9ecef;
+        border-radius: 10px;
+        font-size: 16px;
+        box-sizing: border-box;
+        transition: all 0.3s ease;
+        background: rgba(255,255,255,0.8);
+    }
+
+    .form-control:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        transform: translateY(-2px);
+        background: white;
+    }
+
+    .btn-primary {
+        width: 100%;
+        padding: 15px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 20px;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: linear-gradient(135deg, #5a6fd8, #6a4190);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn-primary:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .alert {
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 10px;
+        font-weight: 500;
+    }
+
+    .alert-danger {
+        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+        color: white;
+        border: none;
+    }
+
+    .vampire-icon {
+        font-size: 2.5rem;
+        color: #667eea;
+        margin-bottom: 10px;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+</style>

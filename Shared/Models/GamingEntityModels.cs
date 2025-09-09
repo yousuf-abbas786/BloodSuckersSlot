@@ -4,10 +4,12 @@ namespace BloodSuckersSlot.Shared.Models
 {
     public enum EntityRole
     {
-        SUPER_AGENT,
-        AGENT,
-        TOKEN,
-        GROUP
+        SUPER_AGENT = 0,
+        AGENT = 1,
+        TOKEN = 2,
+        GROUP = 3,
+        ADMIN = 4,
+        PLAYER = 5
     }
 
     public class GameProviderProfit
@@ -59,6 +61,7 @@ namespace BloodSuckersSlot.Shared.Models
         public string? SuperAgentId { get; set; }
         public string? AgentId { get; set; }
         public string? TokenId { get; set; }
+        public string? GroupId { get; set; } // For Player entities
         public string Email { get; set; } = string.Empty;
         public bool Active { get; set; }
         public DateTime? LastLoginDate { get; set; }
@@ -88,6 +91,19 @@ namespace BloodSuckersSlot.Shared.Models
         public string? TokenPublicKey { get; set; }
         public DateTime? InsertDate { get; set; }
         public DateTime UpdatedAt { get; set; }
+        
+        // Player-specific fields
+        public List<string> GroupIds { get; set; } = new List<string>();
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string? PhoneNumber { get; set; }
+        public DateTime? DateOfBirth { get; set; }
+        public decimal? Balance { get; set; }
+        public string? PlayerStatus { get; set; }
+        
+        // Authentication fields
+        public string? PasswordHash { get; set; }
+        public DateTime? LastLoginAt { get; set; }
     }
 
     public class GamingEntityHierarchy
@@ -131,8 +147,13 @@ namespace BloodSuckersSlot.Shared.Models
         public string? SuperAgentId { get; set; }
         public string? AgentId { get; set; }
         public string? TokenId { get; set; }
+        public string? GroupId { get; set; } // For Player entities
         public string Email { get; set; } = string.Empty;
         public bool Active { get; set; } = true;
+        
+        // Authentication fields
+        public string? PasswordHash { get; set; }
+        public DateTime? LastLoginAt { get; set; }
         public GameProviderProfit? GameProviderProfit { get; set; }
         public int? NetworkProfitPercent { get; set; }
         public string? SubsidiaryName { get; set; }
@@ -156,5 +177,14 @@ namespace BloodSuckersSlot.Shared.Models
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? LastLoginDate { get; set; }
         public DateTime? InsertDate { get; set; }
+        
+        // Player-specific fields
+        public List<string> GroupIds { get; set; } = new List<string>();
+        public string? FirstName { get; set; }
+        public string? LastName { get; set; }
+        public string? PhoneNumber { get; set; }
+        public DateTime? DateOfBirth { get; set; }
+        public decimal? Balance { get; set; }
+        public string? PlayerStatus { get; set; }
     }
 }

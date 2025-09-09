@@ -1,16 +1,100 @@
-﻿<Blazorise.Bootstrap.BootstrapProvider>
+﻿@using BloodSuckersSlot.Web.Services
+@using BloodSuckersSlot.Shared.Models
+@using BloodSuckersSlot.Web.Pages
+@using BloodSuckersSlot.Web.Components
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<Blazorise.Bootstrap.BootstrapProvider>
     <Blazorise.Icons.FontAwesome.FontAwesomeIconProvider>
-        <Router AppAssembly="@typeof(App).Assembly">
-            <Found Context="routeData">
-                <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
-                <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-            </Found>
-            <NotFound>
-                <PageTitle>Not found</PageTitle>
-                <LayoutView Layout="@typeof(MainLayout)">
-                    <p role="alert">Sorry, there's nothing at this address.</p>
-                </LayoutView>
-            </NotFound>
-        </Router>
+        @if (isLoading)
+        {
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <p>Loading...</p>
+            </div>
+        }
+        else if (!isAuthenticated)
+        {
+            <Router AppAssembly="@typeof(App).Assembly">
+                <Found Context="routeData">
+                    @if (routeData.PageType == typeof(Login))
+                    {
+                        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+                    }
+                    else
+                    {
+                        <RedirectToLogin />
+                    }
+                </Found>
+                <NotFound>
+                    <RedirectToLogin />
+                </NotFound>
+            </Router>
+        }
+        else
+        {
+            <Router AppAssembly="@typeof(App).Assembly">
+                <Found Context="routeData">
+                    <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+                    <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+                </Found>
+                <NotFound>
+                    <PageTitle>Not found</PageTitle>
+                    <LayoutView Layout="@typeof(MainLayout)">
+                        <p role="alert">Sorry, there's nothing at this address.</p>
+                    </LayoutView>
+                </NotFound>
+            </Router>
+        }
     </Blazorise.Icons.FontAwesome.FontAwesomeIconProvider>
 </Blazorise.Bootstrap.BootstrapProvider>
+@code {
+    private bool isLoading = true;
+    private bool isAuthenticated = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            isAuthenticated = await AuthService.IsAuthenticatedAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error checking authentication: {ex.Message}");
+            isAuthenticated = false;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+}
+
+<style>
+    .loading-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background-color: #f8f9fa;
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #007bff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+    }
+
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
+

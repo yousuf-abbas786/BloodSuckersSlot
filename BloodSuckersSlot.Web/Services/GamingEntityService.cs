@@ -24,12 +24,14 @@ namespace BloodSuckersSlot.Web.Services
     {
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
+        private readonly IAuthService _authService;
         private readonly JsonSerializerOptions _jsonOptions;
 
-        public GamingEntityService(HttpClient httpClient, IConfiguration configuration)
+        public GamingEntityService(HttpClient httpClient, IConfiguration configuration, IAuthService authService)
         {
             _httpClient = httpClient;
             _configuration = configuration;
+            _authService = authService;
             _jsonOptions = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
@@ -37,10 +39,25 @@ namespace BloodSuckersSlot.Web.Services
             };
         }
 
+        private void SetAuthorizationHeader()
+        {
+            var token = _authService.GetToken();
+            if (!string.IsNullOrEmpty(token))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = 
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            }
+            else
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = null;
+            }
+        }
+
         public async Task<BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem>> GetEntitiesAsync(GamingEntityFilter filter)
         {
             try
             {
+                SetAuthorizationHeader();
                 var queryParams = new List<string>();
                 
                 if (filter.Role.HasValue)
@@ -101,6 +118,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var url = $"{apiBaseUrl}/api/gamingentities/hierarchical";
                 
@@ -129,6 +147,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var url = $"{apiBaseUrl}/api/gamingentities/hierarchical-light";
                 
@@ -157,6 +176,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var url = $"{apiBaseUrl}/api/gamingentities/{id}";
                 
@@ -190,6 +210,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/gamingentities/{id}/hierarchy");
                 
@@ -215,6 +236,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/gamingentities/{parentId}/children");
                 
@@ -241,6 +263,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var json = JsonSerializer.Serialize(entity, _jsonOptions);
                 var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
@@ -269,6 +292,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var json = JsonSerializer.Serialize(entity, _jsonOptions);
                 var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
@@ -297,6 +321,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var response = await _httpClient.DeleteAsync($"{apiBaseUrl}/api/gamingentities/{id}");
                 
@@ -313,6 +338,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var response = await _httpClient.PatchAsync($"{apiBaseUrl}/api/gamingentities/{id}/toggle-active", null);
                 
@@ -329,6 +355,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/gamingentities/currencies");
                 
@@ -355,6 +382,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/gamingentities/stats");
                 
@@ -381,6 +409,7 @@ namespace BloodSuckersSlot.Web.Services
         {
             try
             {
+                SetAuthorizationHeader();
                 var apiBaseUrl = _configuration["ApiBaseUrl"] ?? "/api";
                 var response = await _httpClient.GetAsync($"{apiBaseUrl}/api/gamingentities/by-role/{role}");
                 

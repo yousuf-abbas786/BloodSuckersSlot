@@ -3,12 +3,14 @@ using BloodSuckersSlot.Api.Models;
 using BloodSuckersSlot.Api.Services;
 using BloodSuckersSlot.Shared.Models;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Authorization;
 using ApiGamingEntity = BloodSuckersSlot.Api.Models.GamingEntity;
 
 namespace BloodSuckersSlot.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "AdminOnly")]
     public class GamingEntitiesController : ControllerBase
     {
         private readonly IGamingEntityService _gamingEntityService;

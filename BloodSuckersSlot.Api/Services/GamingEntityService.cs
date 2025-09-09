@@ -27,11 +27,13 @@ namespace BloodSuckersSlot.Api.Services
     {
         private readonly IMongoCollection<ApiGamingEntity> _collection;
         private readonly ILogger<GamingEntityService> _logger;
+        private readonly IGamingEntityAuthService _authService;
 
-        public GamingEntityService(IMongoDatabase database, ILogger<GamingEntityService> logger)
+        public GamingEntityService(IMongoDatabase database, ILogger<GamingEntityService> logger, IGamingEntityAuthService authService)
         {
             _collection = database.GetCollection<ApiGamingEntity>("gamingEntities");
             _logger = logger;
+            _authService = authService;
             
             // Create indexes
             CreateIndexes();
@@ -280,6 +282,9 @@ namespace BloodSuckersSlot.Api.Services
                     case EntityRole.TOKEN:
                         filter = Builders<ApiGamingEntity>.Filter.Eq(x => x.TokenId, parentId);
                         break;
+                    case EntityRole.GROUP:
+                        filter = Builders<ApiGamingEntity>.Filter.Eq(x => x.GroupId, parentId);
+                        break;
                     default:
                         return new List<GamingEntityListItem>();
                 }
@@ -307,6 +312,17 @@ namespace BloodSuckersSlot.Api.Services
                 apiEntity.UpdatedAt = DateTime.UtcNow;
                 apiEntity.InsertDate = DateTime.UtcNow;
 
+                // Hash password for ADMIN and PLAYER roles
+                if (entity.Role == EntityRole.ADMIN || entity.Role == EntityRole.PLAYER)
+                {
+                    // If no password provided, generate a default one
+                    var passwordToHash = !string.IsNullOrEmpty(entity.PasswordHash) 
+                        ? entity.PasswordHash 
+                        : GenerateDefaultPassword(entity.Role, entity.Username);
+                    
+                    apiEntity.PasswordHash = _authService.HashPassword(passwordToHash);
+                }
+
                 // Validate hierarchy
                 await ValidateHierarchy(apiEntity);
 
@@ -327,6 +343,30 @@ namespace BloodSuckersSlot.Api.Services
                 var apiEntity = ApiGamingEntity.FromShared(entity);
                 apiEntity.Id = id;
                 apiEntity.UpdatedAt = DateTime.UtcNow;
+
+                // Handle password for ADMIN and PLAYER roles
+                if (entity.Role == EntityRole.ADMIN || entity.Role == EntityRole.PLAYER)
+                {
+                    if (!string.IsNullOrEmpty(entity.PasswordHash))
+                    {
+                        // New password provided, hash it
+                        apiEntity.PasswordHash = _authService.HashPassword(entity.PasswordHash);
+                    }
+                    else
+                    {
+                        // No password provided, preserve existing password
+                        var existingEntity = await _collection.Find(x => x.Id == id).FirstOrDefaultAsync();
+                        if (existingEntity != null)
+                        {
+                            apiEntity.PasswordHash = existingEntity.PasswordHash;
+                        }
+                        else
+                        {
+                            // Entity doesn't exist, generate default password
+                            apiEntity.PasswordHash = _authService.HashPassword(GenerateDefaultPassword(entity.Role, entity.Username));
+                        }
+                    }
+                }
 
                 // Validate hierarchy
                 await ValidateHierarchy(apiEntity);
@@ -351,11 +391,18 @@ namespace BloodSuckersSlot.Api.Services
         {
             try
             {
-                // Check if entity has children
-                var children = await GetChildrenAsync(id, EntityRole.SUPER_AGENT);
+                // First, get the entity to determine its role
+                var entity = await _collection.Find(x => x.Id == id).FirstOrDefaultAsync();
+                if (entity == null)
+                {
+                    return false; // Entity doesn't exist
+                }
+
+                // Check if entity has children based on its actual role
+                var children = await GetChildrenAsync(id, entity.Role);
                 if (children.Any())
                 {
-                    throw new InvalidOperationException("Cannot delete entity with children");
+                    throw new InvalidOperationException($"Cannot delete {entity.Role} entity with children");
                 }
 
                 var result = await _collection.DeleteOneAsync(x => x.Id == id);
@@ -529,6 +576,21 @@ namespace BloodSuckersSlot.Api.Services
                 }
             }
 
+            if (!string.IsNullOrEmpty(entity.GroupId))
+            {
+                var group = await _collection.Find(x => x.Id == entity.GroupId).FirstOrDefaultAsync();
+                if (group == null || group.Role != EntityRole.GROUP)
+                {
+                    throw new ArgumentException("Invalid Group reference");
+                }
+            }
+
+            // Validate required fields for specific roles
+            if (entity.Role == EntityRole.PLAYER && string.IsNullOrEmpty(entity.GroupId))
+            {
+                throw new ArgumentException("Player entities must be assigned to a group");
+            }
+
             // Validate RTP hierarchy
             if (entity.Role == EntityRole.GROUP && entity.Rtp.HasValue)
             {
@@ -560,6 +622,7 @@ namespace BloodSuckersSlot.Api.Services
                 SuperAgentId = entity.SuperAgentId,
                 AgentId = entity.AgentId,
                 TokenId = entity.TokenId,
+                GroupId = entity.GroupId,
                 Email = entity.Email,
                 Active = entity.Active,
                 LastLoginDate = entity.LastLoginDate,
@@ -577,10 +640,22 @@ namespace BloodSuckersSlot.Api.Services
                 SuperAgentId = entity.SuperAgentId,
                 AgentId = entity.AgentId,
                 TokenId = entity.TokenId,
+                GroupId = entity.GroupId,
                 Email = string.Empty, // Not loaded in light version
                 Active = entity.Active,
                 LastLoginDate = null, // Not loaded in light version
                 CreatedAt = DateTime.MinValue // Not loaded in light version
+            };
+        }
+
+        private string GenerateDefaultPassword(EntityRole role, string username)
+        {
+            // Generate a default password based on role and username
+            return role switch
+            {
+                EntityRole.ADMIN => "admin123", // Admin default password
+                EntityRole.PLAYER => $"player{username}123", // Player default password based on username
+                _ => "default123"
             };
         }
 
@@ -594,6 +669,7 @@ namespace BloodSuckersSlot.Api.Services
                 SuperAgentId = entity.SuperAgentId,
                 AgentId = entity.AgentId,
                 TokenId = entity.TokenId,
+                GroupId = entity.GroupId,
                 Email = entity.Email,
                 Active = entity.Active,
                 LastLoginDate = entity.LastLoginDate,

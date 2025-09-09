@@ -29,8 +29,15 @@ namespace BloodSuckersSlot.Api.Models
         [BsonRepresentation(BsonType.ObjectId)]
         public string? TokenId { get; set; }
         
+        [BsonElement("groupId")]
+        [BsonRepresentation(BsonType.ObjectId)]
+        public string? GroupId { get; set; }
+        
         [BsonElement("email")]
         public string Email { get; set; } = string.Empty;
+        
+        [BsonElement("passwordHash")]
+        public string? PasswordHash { get; set; }
         
         [BsonElement("active")]
         public bool Active { get; set; } = true;
@@ -115,7 +122,9 @@ namespace BloodSuckersSlot.Api.Models
                 SuperAgentId = shared.SuperAgentId,
                 AgentId = shared.AgentId,
                 TokenId = shared.TokenId,
+                GroupId = shared.GroupId,
                 Email = shared.Email,
+                PasswordHash = shared.PasswordHash,
                 Active = shared.Active,
                 GameProviderProfit = shared.GameProviderProfit,
                 NetworkProfitPercent = shared.NetworkProfitPercent,
@@ -153,7 +162,9 @@ namespace BloodSuckersSlot.Api.Models
                 SuperAgentId = SuperAgentId,
                 AgentId = AgentId,
                 TokenId = TokenId,
+                GroupId = GroupId,
                 Email = Email,
+                PasswordHash = PasswordHash,
                 Active = Active,
                 GameProviderProfit = GameProviderProfit,
                 NetworkProfitPercent = NetworkProfitPercent,

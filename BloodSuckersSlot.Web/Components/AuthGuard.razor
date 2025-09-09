@@ -1,0 +1,167 @@
+@using BloodSuckersSlot.Web.Services
+@using BloodSuckersSlot.Shared.Models
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+@if (isLoading)
+{
+    <div class="loading-container">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Checking authentication...</p>
+        </div>
+    </div>
+}
+else if (!isAuthenticated)
+{
+    <div class="unauthorized-container">
+        <div class="unauthorized-card">
+            <i class="fas fa-lock"></i>
+            <h2>Access Denied</h2>
+            <p>You need to be logged in as an Admin to access this page.</p>
+            <button class="btn btn-primary" @onclick="NavigateToLogin">
+                <i class="fas fa-sign-in-alt"></i>
+                Go to Login
+            </button>
+        </div>
+    </div>
+}
+else if (!isAdmin)
+{
+    <div class="unauthorized-container">
+        <div class="unauthorized-card">
+            <i class="fas fa-user-shield"></i>
+            <h2>Insufficient Permissions</h2>
+            <p>You need Admin role to access this page.</p>
+            <button class="btn btn-primary" @onclick="NavigateToLogin">
+                <i class="fas fa-sign-in-alt"></i>
+                Login as Admin
+            </button>
+        </div>
+    </div>
+}
+else
+{
+    @ChildContent
+}
+
+<style>
+    .loading-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 50vh;
+    }
+
+    .loading-spinner {
+        text-align: center;
+        color: #6c757d;
+    }
+
+    .loading-spinner i {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+    }
+
+    .loading-spinner p {
+        margin: 0;
+        font-size: 1.1rem;
+    }
+
+    .unauthorized-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 50vh;
+        padding: 2rem;
+    }
+
+    .unauthorized-card {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        padding: 3rem;
+        text-align: center;
+        max-width: 500px;
+        border: 1px solid #e9ecef;
+    }
+
+    .unauthorized-card i {
+        font-size: 4rem;
+        color: #dc3545;
+        margin-bottom: 1.5rem;
+    }
+
+    .unauthorized-card h2 {
+        color: #343a40;
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+
+    .unauthorized-card p {
+        color: #6c757d;
+        margin-bottom: 2rem;
+        font-size: 1.1rem;
+        line-height: 1.5;
+    }
+
+    .btn {
+        padding: 12px 24px;
+        font-size: 1rem;
+        font-weight: 500;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #007bff, #0056b3);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: linear-gradient(135deg, #0056b3, #004085);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 123, 255, 0.3);
+    }
+</style>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool isLoading = true;
+    private bool isAuthenticated = false;
+    private bool isAdmin = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            isAuthenticated = await AuthService.IsAuthenticatedAsync();
+            if (isAuthenticated)
+            {
+                isAdmin = await AuthService.IsAdminAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Authentication check error: {ex.Message}");
+            isAuthenticated = false;
+            isAdmin = false;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void NavigateToLogin()
+    {
+        Navigation.NavigateTo("/login");
+    }
+}

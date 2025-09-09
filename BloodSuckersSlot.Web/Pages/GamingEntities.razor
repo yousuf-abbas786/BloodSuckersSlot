@@ -1,11 +1,14 @@
-@page "/gaming-entities"
+@page "/gamingentities"
 @using BloodSuckersSlot.Web.Services
 @using BloodSuckersSlot.Shared.Models
+@using BloodSuckersSlot.Web.Components
 @inject IGamingEntityService GamingEntityService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Gaming Entities Management</PageTitle>
+
+<AuthGuard>
 
 <style>
     .enterprise-header {
@@ -230,9 +233,14 @@
                 <p class="mb-0 opacity-75">Comprehensive management system for hierarchical gaming entities</p>
             </div>
             <div class="col-md-4 text-end">
-                <button class="btn btn-light btn-lg px-4" @onclick="AddNewEntity">
-                    <i class="fas fa-plus me-2"></i>Add Entity
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-light btn-lg px-3" @onclick="RefreshData" title="Refresh Data">
+                        <i class="fas fa-sync-alt me-2"></i>Refresh
+                    </button>
+                    <button class="btn btn-light btn-lg px-4" @onclick="AddNewEntity">
+                        <i class="fas fa-plus me-2"></i>Add Entity
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -397,12 +405,16 @@
                                             <td class="text-center">
                                                 @if (hierarchicalEntity.HasChildren)
                                                 {
-                                                <button class="btn btn-sm btn-outline-primary expand-btn" 
-                                                            @onclick="() => ToggleEntity(entity.Id)" 
-                                                            @onclick:stopPropagation="true"
-                                                            title="@(expandedEntities.GetValueOrDefault(entity.Id, true) ? "Collapse" : "Expand")">
-                                                    <i class="fas fa-chevron-@(expandedEntities.GetValueOrDefault(entity.Id, true) ? "down" : "right")"></i>
-                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-primary expand-btn" 
+                                                                @onclick="() => ToggleEntity(entity.Id)" 
+                                                                @onclick:stopPropagation="true"
+                                                                title="@(expandedEntities.GetValueOrDefault(entity.Id, false) ? "Collapse" : "Expand")">
+                                                        <i class="fas fa-chevron-@(expandedEntities.GetValueOrDefault(entity.Id, false) ? "down" : "right")"></i>
+                                                        </button>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
                                                 }
                                             </td>
                                             <td>
@@ -412,7 +424,14 @@
                                             </td>
                                             <td>
                                             <div>
-                                                <div class="fw-semibold">@entity.Username</div>
+                                                <div class="fw-semibold d-flex align-items-center">
+                                                    @entity.Username
+                                                    @if (hierarchicalEntity.HasChildren)
+                                                    {
+                                                        var childCount = GetChildCount(entity.Id, entity.Role);
+                                                        <span class="badge bg-primary ms-2" title="@childCount children">@childCount</span>
+                                                    }
+                                                </div>
                                                     @if (!string.IsNullOrEmpty(entity.Email))
                                                     {
                                                     <small class="text-muted">@entity.Email</small>
@@ -699,12 +718,14 @@
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">Role</label>
+                                <label class="form-label">Role (Current: @selectedEntity.Role)</label>
                                 <select class="form-select" @onchange="OnRoleChanged">
                                     <option value="@EntityRole.SUPER_AGENT" selected="@(selectedEntity.Role == EntityRole.SUPER_AGENT)">SUPER AGENT</option>
                                     <option value="@EntityRole.AGENT" selected="@(selectedEntity.Role == EntityRole.AGENT)">AGENT</option>
                                     <option value="@EntityRole.TOKEN" selected="@(selectedEntity.Role == EntityRole.TOKEN)">TOKEN</option>
                                     <option value="@EntityRole.GROUP" selected="@(selectedEntity.Role == EntityRole.GROUP)">GROUP</option>
+                                    <option value="@EntityRole.ADMIN" selected="@(selectedEntity.Role == EntityRole.ADMIN)">ADMIN</option>
+                                    <option value="@EntityRole.PLAYER" selected="@(selectedEntity.Role == EntityRole.PLAYER)">PLAYER</option>
                                 </select>
                             </div>
                         </div>
@@ -716,6 +737,16 @@
                                 <input type="email" class="form-control" @bind="selectedEntity.Email" />
                             </div>
                         </div>
+                        @if (selectedEntity.Role == EntityRole.ADMIN || selectedEntity.Role == EntityRole.PLAYER)
+                        {
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Password</label>
+                                    <input type="password" class="form-control" @bind="entityPassword" placeholder="Enter password (default: player{username}123)" />
+                                    <small class="form-text text-muted">Leave empty to use default password: player{username}123</small>
+                                </div>
+                            </div>
+                        }
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label">Active</label>
@@ -805,6 +836,74 @@
                                 <div class="mb-3">
                                     <label class="form-label">RTP (%)</label>
                                     <input type="number" class="form-control" @bind="selectedEntity.Rtp" min="0" max="100" step="0.01" placeholder="e.g., 96.5" />
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    
+                    <!-- Hierarchical selection for PLAYER entities -->
+                    @if (selectedEntity.Role == EntityRole.PLAYER)
+                    {
+                        <!-- Super Agent Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Super Agent</label>
+                                    <select class="form-select" @bind="selectedEntity.SuperAgentId">
+                                        <option value="">Select Super Agent</option>
+                                        @foreach (var superAgent in superAgents)
+                                        {
+                                            <option value="@superAgent.Id">@superAgent.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Agent Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Agent</label>
+                                    <select class="form-select" @bind="selectedEntity.AgentId">
+                                        <option value="">Select Agent</option>
+                                        @foreach (var agent in agents.Where(a => a.SuperAgentId == selectedEntity.SuperAgentId))
+                                        {
+                                            <option value="@agent.Id">@agent.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Token Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Token</label>
+                                    <select class="form-select" @bind="selectedEntity.TokenId">
+                                        <option value="">Select Token</option>
+                                        @foreach (var token in tokens.Where(t => t.AgentId == selectedEntity.AgentId))
+                                        {
+                                            <option value="@token.Id">@token.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Group Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Group (Available: @groups.Count)</label>
+                                    <select class="form-select" @bind="selectedEntity.GroupId">
+                                        <option value="">Select Group</option>
+                                        @foreach (var group in groups)
+                                        {
+                                            <option value="@group.Id">@group.Username</option>
+                                        }
+                                    </select>
                                 </div>
                             </div>
                         </div>
@@ -840,12 +939,14 @@
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">Role</label>
+                                <label class="form-label">Role (Current: @selectedEntity.Role)</label>
                                 <select class="form-select" @onchange="OnRoleChanged">
                                     <option value="@EntityRole.SUPER_AGENT" selected="@(selectedEntity.Role == EntityRole.SUPER_AGENT)">SUPER AGENT</option>
                                     <option value="@EntityRole.AGENT" selected="@(selectedEntity.Role == EntityRole.AGENT)">AGENT</option>
                                     <option value="@EntityRole.TOKEN" selected="@(selectedEntity.Role == EntityRole.TOKEN)">TOKEN</option>
                                     <option value="@EntityRole.GROUP" selected="@(selectedEntity.Role == EntityRole.GROUP)">GROUP</option>
+                                    <option value="@EntityRole.ADMIN" selected="@(selectedEntity.Role == EntityRole.ADMIN)">ADMIN</option>
+                                    <option value="@EntityRole.PLAYER" selected="@(selectedEntity.Role == EntityRole.PLAYER)">PLAYER</option>
                                 </select>
                             </div>
                         </div>
@@ -857,6 +958,16 @@
                                 <input type="email" class="form-control" @bind="selectedEntity.Email" />
                             </div>
                         </div>
+                        @if (selectedEntity.Role == EntityRole.ADMIN || selectedEntity.Role == EntityRole.PLAYER)
+                        {
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Password</label>
+                                    <input type="password" class="form-control" @bind="entityPassword" placeholder="Enter password (default: player{username}123)" />
+                                    <small class="form-text text-muted">Leave empty to use default password: player{username}123</small>
+                                </div>
+                            </div>
+                        }
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label">Active</label>
@@ -950,6 +1061,74 @@
                             </div>
                         </div>
                     }
+                    
+                    <!-- Hierarchical selection for PLAYER entities -->
+                    @if (selectedEntity.Role == EntityRole.PLAYER)
+                    {
+                        <!-- Super Agent Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Super Agent</label>
+                                    <select class="form-select" @bind="selectedEntity.SuperAgentId">
+                                        <option value="">Select Super Agent</option>
+                                        @foreach (var superAgent in superAgents)
+                                        {
+                                            <option value="@superAgent.Id">@superAgent.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Agent Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Agent</label>
+                                    <select class="form-select" @bind="selectedEntity.AgentId">
+                                        <option value="">Select Agent</option>
+                                        @foreach (var agent in agents.Where(a => a.SuperAgentId == selectedEntity.SuperAgentId))
+                                        {
+                                            <option value="@agent.Id">@agent.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Token Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Token</label>
+                                    <select class="form-select" @bind="selectedEntity.TokenId">
+                                        <option value="">Select Token</option>
+                                        @foreach (var token in tokens.Where(t => t.AgentId == selectedEntity.AgentId))
+                                        {
+                                            <option value="@token.Id">@token.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Group Selection -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="mb-3">
+                                    <label class="form-label">Group (Available: @groups.Count)</label>
+                                    <select class="form-select" @bind="selectedEntity.GroupId">
+                                        <option value="">Select Group</option>
+                                        @foreach (var group in groups)
+                                        {
+                                            <option value="@group.Id">@group.Username</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="() => showCreateModal = false">Cancel</button>
@@ -966,6 +1145,7 @@
     private BloodSuckersSlot.Shared.Models.PaginatedResult<GamingEntityListItem> originalEntities = new(); // Store original unfiltered data
     private GamingEntityDetail? selectedEntity;
     private string? selectedEntityId;
+    private string entityPassword = string.Empty;
     
     // Modal states
     private bool showCreateModal = false;
@@ -980,6 +1160,7 @@
     private List<GamingEntityListItem> agents = new();
     private List<GamingEntityListItem> tokens = new();
     private List<GamingEntityListItem> groups = new();
+    
     private List<string> currencies = new();
     
     // Filter values
@@ -1003,6 +1184,13 @@
         await LoadAllData();
     }
 
+    private async Task RefreshData()
+    {
+        Console.WriteLine("=== MANUAL REFRESH TRIGGERED ===");
+        await LoadAllData();
+        StateHasChanged();
+    }
+
     private async Task LoadAllData()
     {
         isLoading = true;
@@ -1021,6 +1209,7 @@
 
             var allEntitiesResult = await GamingEntityService.GetEntitiesAsync(filter);
             
+            
             // Store original unfiltered data
             originalEntities = allEntitiesResult;
             
@@ -1031,10 +1220,19 @@
             superAgents = allEntitiesResult.Items.Where(e => e.Role == EntityRole.SUPER_AGENT).ToList();
             agents = allEntitiesResult.Items.Where(e => e.Role == EntityRole.AGENT).ToList();
             tokens = allEntitiesResult.Items.Where(e => e.Role == EntityRole.TOKEN).ToList();
+            
             groups = allEntitiesResult.Items.Where(e => e.Role == EntityRole.GROUP).ToList();
             
             // Note: Currency filter removed since GamingEntityListItem doesn't have Currency property
             currencies = new List<string>();
+            
+            // Initialize expanded state - all entities start collapsed
+            expandedEntities.Clear();
+            foreach (var entity in allEntitiesResult.Items)
+            {
+                // All entities start collapsed by default
+                expandedEntities[entity.Id] = false;
+            }
         }
         catch (Exception ex)
         {
@@ -1116,6 +1314,18 @@
                 PageSize = filteredItems.Count(),
                 TotalPages = 1
             };
+            
+            // Update filter options to match current data (groups dropdown needs this)
+            superAgents = originalEntities.Items.Where(e => e.Role == EntityRole.SUPER_AGENT).ToList();
+            agents = originalEntities.Items.Where(e => e.Role == EntityRole.AGENT).ToList();
+            tokens = originalEntities.Items.Where(e => e.Role == EntityRole.TOKEN).ToList();
+            
+            // Only reload groups if they're empty (prevent resetting during filtering)
+            if (groups.Count == 0)
+            {
+                groups = originalEntities.Items.Where(e => e.Role == EntityRole.GROUP).ToList();
+            }
+            
         }
         catch (Exception ex)
         {
@@ -1216,6 +1426,7 @@
                     SuperAgentId = selectedEntity.SuperAgentId,
                     AgentId = selectedEntity.AgentId,
                     TokenId = selectedEntity.TokenId,
+                    GroupId = selectedEntity.GroupId,
                     GameProviderProfit = selectedEntity.GameProviderProfit,
                     NetworkProfitPercent = selectedEntity.NetworkProfitPercent,
                     SubsidiaryName = selectedEntity.SubsidiaryName,
@@ -1234,7 +1445,8 @@
                     ShopType = selectedEntity.ShopType,
                     GameLimits = selectedEntity.GameLimits,
                     TokenEndpoint = selectedEntity.TokenEndpoint,
-                    TokenPublicKey = selectedEntity.TokenPublicKey
+                    TokenPublicKey = selectedEntity.TokenPublicKey,
+                    PasswordHash = (selectedEntity.Role == EntityRole.ADMIN || selectedEntity.Role == EntityRole.PLAYER) ? entityPassword : null
                 };
 
                 var createdEntity = await GamingEntityService.CreateEntityAsync(entityToCreate);
@@ -1249,6 +1461,23 @@
                     
                     // Refresh all data
                     await LoadAllData();
+                    
+                    // If we created a player, auto-expand its parent group
+                    if (entityToCreate.Role == EntityRole.PLAYER && !string.IsNullOrEmpty(entityToCreate.GroupId))
+                    {
+                        expandedEntities[entityToCreate.GroupId] = true;
+                        Console.WriteLine($"Auto-expanded group {entityToCreate.GroupId} for new player");
+                    }
+                    else if (entityToCreate.Role == EntityRole.PLAYER && string.IsNullOrEmpty(entityToCreate.GroupId))
+                    {
+                        Console.WriteLine($"WARNING: Player {entityToCreate.Username} created without GroupId!");
+                    }
+                    
+                    // Debug: Log the current entities count
+                    Console.WriteLine($"Total entities loaded: {entities.Items.Count}");
+                    Console.WriteLine($"Players: {entities.Items.Count(e => e.Role == EntityRole.PLAYER)}");
+                    Console.WriteLine($"Groups: {entities.Items.Count(e => e.Role == EntityRole.GROUP)}");
+                    
                     StateHasChanged();
                 }
             }
@@ -1275,6 +1504,7 @@
                     SuperAgentId = selectedEntity.SuperAgentId,
                     AgentId = selectedEntity.AgentId,
                     TokenId = selectedEntity.TokenId,
+                    GroupId = selectedEntity.GroupId,
                     Currency = selectedEntity.Currency,
                     Rtp = selectedEntity.Rtp,
                     GameProviderProfit = selectedEntity.GameProviderProfit,
@@ -1293,7 +1523,8 @@
                     ShopType = selectedEntity.ShopType,
                     GameLimits = selectedEntity.GameLimits,
                     TokenEndpoint = selectedEntity.TokenEndpoint,
-                    TokenPublicKey = selectedEntity.TokenPublicKey
+                    TokenPublicKey = selectedEntity.TokenPublicKey,
+                    PasswordHash = (selectedEntity.Role == EntityRole.ADMIN || selectedEntity.Role == EntityRole.PLAYER) ? entityPassword : null
                 };
 
                 var updatedEntity = await GamingEntityService.UpdateEntityAsync(selectedEntity.Id, entityToUpdate);
@@ -1321,7 +1552,9 @@
     private void AddNewEntity()
     {
         selectedEntity = new GamingEntityDetail();
+        selectedEntity.Role = EntityRole.PLAYER; // Default to PLAYER role
         selectedEntityId = null;
+        entityPassword = string.Empty;
         showCreateModal = true;
     }
 
@@ -1333,10 +1566,14 @@
             selectedEntity!.Role = newRole;
         }
         
+        // Clear password field when role changes
+        entityPassword = string.Empty;
+        
         // Clear parent relationships when role changes
         selectedEntity!.SuperAgentId = null;
         selectedEntity.AgentId = null;
         selectedEntity.TokenId = null;
+        selectedEntity.GroupId = null;
         
         // Note: Filter options are already loaded, no need to reload
     }
@@ -1389,101 +1626,139 @@
         var allEntities = entities.Items.ToList();
         var hierarchicalList = new List<HierarchicalEntity>();
 
-        // First, add all SUPER AGENTs (top level)
-        var superAgents = allEntities.Where(e => e.Role == EntityRole.SUPER_AGENT).ToList();
-        
-        foreach (var superAgent in superAgents)
+        // Debug: Log what entities we're working with
+        Console.WriteLine($"=== HIERARCHICAL DISPLAY DEBUG ===");
+        Console.WriteLine($"Processing {allEntities.Count} entities for hierarchical display");
+        var players = allEntities.Where(e => e.Role == EntityRole.PLAYER).ToList();
+        Console.WriteLine($"Players in display: {players.Count}");
+        foreach (var player in players)
         {
-            // Check if this SUPER AGENT has children
-            var hasChildren = allEntities.Any(e => e.Role == EntityRole.AGENT && e.SuperAgentId == superAgent.Id);
+            Console.WriteLine($"  Player: {player.Username}, GroupId: {player.GroupId}");
+        }
+
+        // First, build the hierarchy data for each entity
+        var entityHierarchyData = new Dictionary<string, HierarchicalEntity>();
+        
+        foreach (var entity in allEntities)
+        {
+            var hasChildren = false;
+            var level = 0;
+            var parentName = "Root Level";
+            var isVisible = true;
             
-            hierarchicalList.Add(new HierarchicalEntity 
-            { 
-                Entity = superAgent, 
-                Level = 0,
-                ParentName = null,
-                HasChildren = hasChildren,
-                IsVisible = true // Top level entities are always visible
-            });
-
-            // Add their children (AGENTs) only if parent is expanded
-            if (expandedEntities.GetValueOrDefault(superAgent.Id, true)) // Default to expanded
+            // Determine hierarchy level and parent
+            switch (entity.Role)
             {
-                var agents = allEntities.Where(e => e.Role == EntityRole.AGENT && e.SuperAgentId == superAgent.Id).ToList();
-                
-                foreach (var agent in agents)
-                {
-                    // Check if this AGENT has children
-                    var agentHasChildren = allEntities.Any(e => e.Role == EntityRole.TOKEN && e.AgentId == agent.Id);
+                case EntityRole.ADMIN:
+                    level = 0;
+                    parentName = "Root Level";
+                    hasChildren = false; // Admins are separate from hierarchy
+                    isVisible = true; // Admins are always visible
+                    break;
                     
-                    hierarchicalList.Add(new HierarchicalEntity 
-                    { 
-                        Entity = agent, 
-                        Level = 1,
-                        ParentName = superAgent.Username,
-                        HasChildren = agentHasChildren,
-                        IsVisible = true
-                    });
+                case EntityRole.SUPER_AGENT:
+                    level = 0;
+                    parentName = "Root Level";
+                    hasChildren = allEntities.Any(e => e.Role == EntityRole.AGENT && !string.IsNullOrEmpty(e.SuperAgentId) && e.SuperAgentId == entity.Id);
+                    isVisible = true; // Super agents are always visible
+                    break;
+                    
+                case EntityRole.AGENT:
+                    level = 1;
+                    var superAgent = allEntities.FirstOrDefault(e => e.Role == EntityRole.SUPER_AGENT && e.Id == entity.SuperAgentId);
+                    parentName = superAgent?.Username ?? (string.IsNullOrEmpty(entity.SuperAgentId) ? "Root Level" : "Unknown Super Agent");
+                    hasChildren = allEntities.Any(e => e.Role == EntityRole.TOKEN && !string.IsNullOrEmpty(e.AgentId) && e.AgentId == entity.Id);
+                    // Agent is visible if its parent super agent is expanded
+                    isVisible = string.IsNullOrEmpty(entity.SuperAgentId) || 
+                               expandedEntities.GetValueOrDefault(entity.SuperAgentId, false);
+                    break;
+                    
+                case EntityRole.TOKEN:
+                    level = 2;
+                    var agent = allEntities.FirstOrDefault(e => e.Role == EntityRole.AGENT && e.Id == entity.AgentId);
+                    parentName = agent?.Username ?? (string.IsNullOrEmpty(entity.AgentId) ? "Root Level" : "Unknown Agent");
+                    hasChildren = allEntities.Any(e => e.Role == EntityRole.GROUP && !string.IsNullOrEmpty(e.TokenId) && e.TokenId == entity.Id);
+                    // Token is visible if its parent agent is expanded
+                    isVisible = string.IsNullOrEmpty(entity.AgentId) || 
+                               expandedEntities.GetValueOrDefault(entity.AgentId, false);
+                    break;
+                    
+                case EntityRole.GROUP:
+                    level = 3;
+                    var token = allEntities.FirstOrDefault(e => e.Role == EntityRole.TOKEN && e.Id == entity.TokenId);
+                    parentName = token?.Username ?? (string.IsNullOrEmpty(entity.TokenId) ? "Root Level" : "Unknown Token");
+                    hasChildren = allEntities.Any(e => e.Role == EntityRole.PLAYER && !string.IsNullOrEmpty(e.GroupId) && e.GroupId == entity.Id);
+                    // Group is visible if its parent token is expanded
+                    isVisible = string.IsNullOrEmpty(entity.TokenId) || 
+                               expandedEntities.GetValueOrDefault(entity.TokenId, false);
+                    
+                    // Debug: Log group children detection
+                    var groupPlayers = allEntities.Where(e => e.Role == EntityRole.PLAYER && e.GroupId == entity.Id).ToList();
+                    Console.WriteLine($"  Group {entity.Username}: HasChildren={hasChildren}, Players={groupPlayers.Count}, Visible={isVisible}");
+                    break;
+                    
+                case EntityRole.PLAYER:
+                    level = 4;
+                    var group = allEntities.FirstOrDefault(e => e.Role == EntityRole.GROUP && e.Id == entity.GroupId);
+                    parentName = group?.Username ?? (string.IsNullOrEmpty(entity.GroupId) ? "Root Level" : "Unknown Group");
+                    hasChildren = false; // PLAYERs are leaf nodes
+                    // Player is visible if its parent group is expanded
+                    // If GroupId is empty, show player at root level
+                    isVisible = string.IsNullOrEmpty(entity.GroupId) || 
+                               (!string.IsNullOrEmpty(entity.GroupId) && expandedEntities.GetValueOrDefault(entity.GroupId, false));
+                    
+                    // Debug: Log player visibility
+                    var groupExpanded = string.IsNullOrEmpty(entity.GroupId) ? false : expandedEntities.GetValueOrDefault(entity.GroupId, false);
+                    Console.WriteLine($"  Player {entity.Username}: GroupId={entity.GroupId}, Parent={parentName}, Visible={isVisible}, GroupExpanded={groupExpanded}");
+                    break;
+            }
+            
+            entityHierarchyData[entity.Id] = new HierarchicalEntity 
+            { 
+                Entity = entity, 
+                Level = level,
+                ParentName = parentName,
+                HasChildren = hasChildren,
+                IsVisible = isVisible
+            };
+        }
 
-                    // Add their children (TOKENs) only if parent is expanded
-                    if (expandedEntities.GetValueOrDefault(agent.Id, true)) // Default to expanded
-                    {
-                        var tokens = allEntities.Where(e => e.Role == EntityRole.TOKEN && e.AgentId == agent.Id).ToList();
-                        
-                        foreach (var token in tokens)
-                        {
-                            // Check if this TOKEN has children
-                            var tokenHasChildren = allEntities.Any(e => e.Role == EntityRole.GROUP && e.TokenId == token.Id);
-                            
-                            hierarchicalList.Add(new HierarchicalEntity 
-                            { 
-                                Entity = token, 
-                                Level = 2,
-                                ParentName = agent.Username,
-                                HasChildren = tokenHasChildren,
-                                IsVisible = true
-                            });
-
-                            // Add their children (GROUPs) only if parent is expanded
-                            if (expandedEntities.GetValueOrDefault(token.Id, true)) // Default to expanded
-                            {
-                                var groups = allEntities.Where(e => e.Role == EntityRole.GROUP && e.TokenId == token.Id).ToList();
-                                
-                                foreach (var group in groups)
-                                {
-                                    hierarchicalList.Add(new HierarchicalEntity 
-                                    { 
-                                        Entity = group, 
-                                        Level = 3,
-                                        ParentName = token.Username,
-                                        HasChildren = false, // GROUPs are leaf nodes
-                                        IsVisible = true
-                                    });
-                                }
-                            }
-                        }
-                    }
+        // Now build the hierarchical order by recursively adding entities
+        void AddEntityAndChildren(string entityId, List<HierarchicalEntity> result)
+        {
+            if (!entityHierarchyData.ContainsKey(entityId)) return;
+            
+            var entityData = entityHierarchyData[entityId];
+            if (!entityData.IsVisible) return;
+            
+            // Add the entity itself
+            result.Add(entityData);
+            
+            // If expanded, add its children
+            if (entityData.HasChildren && expandedEntities.GetValueOrDefault(entityId, false))
+            {
+                var children = allEntities.Where(e => 
+                    (e.Role == EntityRole.AGENT && e.SuperAgentId == entityId) ||
+                    (e.Role == EntityRole.TOKEN && e.AgentId == entityId) ||
+                    (e.Role == EntityRole.GROUP && e.TokenId == entityId) ||
+                    (e.Role == EntityRole.PLAYER && e.GroupId == entityId)
+                ).OrderBy(e => e.Username);
+                
+                foreach (var child in children)
+                {
+                    AddEntityAndChildren(child.Id, result);
                 }
             }
         }
 
-        // Add any orphaned entities (entities without proper parent relationships)
-        var orphanedEntities = allEntities.Where(e => 
-            (e.Role == EntityRole.AGENT && string.IsNullOrEmpty(e.SuperAgentId)) ||
-            (e.Role == EntityRole.TOKEN && string.IsNullOrEmpty(e.AgentId)) ||
-            (e.Role == EntityRole.GROUP && string.IsNullOrEmpty(e.TokenId))
-        ).ToList();
-
-        foreach (var orphaned in orphanedEntities)
+        // Start with root level entities (SUPER_AGENT and ADMIN)
+        var rootEntities = allEntities.Where(e => 
+            e.Role == EntityRole.SUPER_AGENT || e.Role == EntityRole.ADMIN
+        ).OrderBy(e => e.Username);
+        
+        foreach (var rootEntity in rootEntities)
         {
-            hierarchicalList.Add(new HierarchicalEntity 
-            { 
-                Entity = orphaned, 
-                Level = 0, // Show at top level with warning
-                ParentName = "⚠️ Orphaned",
-                HasChildren = false,
-                IsVisible = true
-            });
+            AddEntityAndChildren(rootEntity.Id, hierarchicalList);
         }
 
         return hierarchicalList;
@@ -1506,7 +1781,7 @@
         }
         else
         {
-            expandedEntities[entityId] = false; // Collapse by default
+            expandedEntities[entityId] = false; // Start collapsed
         }
         StateHasChanged(); // Trigger UI refresh
     }
@@ -1520,6 +1795,7 @@
             if (selectedEntity != null)
             {
                 selectedEntityId = id;
+                entityPassword = string.Empty;
                 showEditModal = true;
             }
         }
@@ -1566,6 +1842,7 @@
                 if (entityDetails != null)
                 {
                     selectedEntity = entityDetails;
+                    entityPassword = string.Empty;
                     showEditModal = true;
                 }
             }
@@ -1618,4 +1895,20 @@
         if (!string.IsNullOrEmpty(selectedGroupId)) count++;
         return count;
     }
+
+    private int GetChildCount(string entityId, EntityRole role)
+    {
+        var allEntities = entities.Items.ToList();
+        
+        return role switch
+        {
+            EntityRole.SUPER_AGENT => allEntities.Count(e => e.Role == EntityRole.AGENT && e.SuperAgentId == entityId),
+            EntityRole.AGENT => allEntities.Count(e => e.Role == EntityRole.TOKEN && e.AgentId == entityId),
+            EntityRole.TOKEN => allEntities.Count(e => e.Role == EntityRole.GROUP && e.TokenId == entityId),
+            EntityRole.GROUP => allEntities.Count(e => e.Role == EntityRole.PLAYER && e.GroupId == entityId),
+            _ => 0
+        };
+    }
 }
+
+</AuthGuard>
