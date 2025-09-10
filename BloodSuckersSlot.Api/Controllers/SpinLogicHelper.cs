@@ -390,9 +390,9 @@ namespace BloodSuckersSlot.Api.Controllers
             else
                 _consecutiveHighRtpSpins = 0;
 
-            // PHASE 1: BALANCED thresholds for natural waves - NOT TOO AGGRESSIVE
-            bool needHigherRtp = currentRtp < config.RtpTarget * 0.85; // Below 85% of target - More balanced
-            bool needLowerRtp = currentRtp > config.RtpTarget * 1.15; // Above 115% of target - More balanced
+            // PHASE 1: AGGRESSIVE thresholds for better RTP targeting
+            bool needHigherRtp = currentRtp < config.RtpTarget * 0.95; // Below 95% of target - More aggressive
+            bool needLowerRtp = currentRtp > config.RtpTarget * 1.05; // Above 105% of target - More aggressive
             bool needHigherHitRate = currentHitRate < config.TargetHitRate * 0.9; // Below 90% of target
             bool needLowerHitRate = currentHitRate > config.TargetHitRate * 1.05; // Above 105% of target
             bool needLowerVolatility = currentVolatility > config.VolatilityThreshold; // High volatility threshold
@@ -449,23 +449,23 @@ namespace BloodSuckersSlot.Api.Controllers
                 // ULTRA AGGRESSIVE RTP RECOVERY: Use ANY high RTP reel set for dramatic waves
                 double minRtpThreshold;
                 
-                if (currentRtp < config.RtpTarget * 0.8) // Very low RTP (< 70.4%)
+                if (currentRtp < config.RtpTarget * 0.85) // Very low RTP (< 74.8%)
                 {
-                    // BALANCED RECOVERY: Use reel sets with RTP > 60% of target for natural recovery
-                    minRtpThreshold = config.RtpTarget * 0.6; // 52.8% - Allow reel sets above 52.8% RTP
-                    Console.WriteLine($"🚨 BALANCED RTP RECOVERY: Current RTP {currentRtp:P2} < 70.4% - Using reel sets above 52.8% RTP");
-                }
-                else if (currentRtp < config.RtpTarget * 0.9) // Low RTP (< 79.2%)
-                {
-                    // MODERATE RECOVERY: Use reel sets with RTP > 70% of target
-                    minRtpThreshold = config.RtpTarget * 0.7; // 61.6% - Allow reel sets above 61.6% RTP
-                    Console.WriteLine($"📈 MODERATE RTP RECOVERY: Current RTP {currentRtp:P2} < 79.2% - Using reel sets above 61.6% RTP");
-                }
-                else // Moderate low RTP (79.2% - 85%)
-                {
-                    // GENTLE RECOVERY: Use reel sets with RTP > 80% of target
+                    // AGGRESSIVE RECOVERY: Use reel sets with RTP > 80% of target for strong recovery
                     minRtpThreshold = config.RtpTarget * 0.8; // 70.4% - Allow reel sets above 70.4% RTP
-                    Console.WriteLine($"📊 GENTLE RTP RECOVERY: Current RTP {currentRtp:P2} < 85% - Using reel sets above 70.4% RTP");
+                    Console.WriteLine($"🚨 AGGRESSIVE RTP RECOVERY: Current RTP {currentRtp:P2} < 74.8% - Using reel sets above 70.4% RTP");
+                }
+                else if (currentRtp < config.RtpTarget * 0.95) // Low RTP (< 83.6%)
+                {
+                    // STRONG RECOVERY: Use reel sets with RTP > 85% of target
+                    minRtpThreshold = config.RtpTarget * 0.85; // 74.8% - Allow reel sets above 74.8% RTP
+                    Console.WriteLine($"📈 STRONG RTP RECOVERY: Current RTP {currentRtp:P2} < 83.6% - Using reel sets above 74.8% RTP");
+                }
+                else // Near target RTP (83.6% - 95%)
+                {
+                    // TARGETED RECOVERY: Use reel sets with RTP > 90% of target
+                    minRtpThreshold = config.RtpTarget * 0.9; // 79.2% - Allow reel sets above 79.2% RTP
+                    Console.WriteLine($"📊 TARGETED RTP RECOVERY: Current RTP {currentRtp:P2} < 95% - Using reel sets above 79.2% RTP");
                 }
                 
                 var rtpCandidates = reelSets
