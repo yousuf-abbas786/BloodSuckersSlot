@@ -3,11 +3,12 @@ using Microsoft.Extensions.Configuration;
 using MongoDB.Driver;
 using MongoDB.Bson;
 using Shared;
+using Shared.Models;
 using System.Text.Json;
 using System.Diagnostics;
-using BloodSuckersSlot.Api.Models;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using BloodSuckersSlot.Api.Services;
+using BloodSuckersSlot.Api.Models;
 
 namespace BloodSuckersSlot.Api.Controllers
 {
@@ -21,6 +22,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly PerformanceSettings _performanceSettings;
         private readonly MongoDbSettings _mongoDbSettings;
         private readonly AutoSpinService _autoSpinService;
+        private readonly IPlayerSessionService _playerSessionService;
         
         // Lazy loading with RTP range caching
         private static readonly Dictionary<string, List<ReelSet>> _rtpRangeCache = new();
@@ -41,12 +43,13 @@ namespace BloodSuckersSlot.Api.Controllers
         private static TimeSpan _prefetchInterval = TimeSpan.FromSeconds(30); // Will be set from config
 
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
-            PerformanceSettings performanceSettings, MongoDbSettings mongoDbSettings, AutoSpinService autoSpinService)
+            PerformanceSettings performanceSettings, MongoDbSettings mongoDbSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService)
         {
             _logger = logger;
             _performanceSettings = performanceSettings;
             _mongoDbSettings = mongoDbSettings;
             _autoSpinService = autoSpinService;
+            _playerSessionService = playerSessionService;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
             
             // Initialize performance settings from configuration
@@ -427,6 +430,30 @@ namespace BloodSuckersSlot.Api.Controllers
                 _logger.LogInformation($"Spin completed successfully - TotalWin: {result.TotalWin} coins ({monetaryPayout:C}), RTP: {actualRtp}, HitRate: {actualHitRate}, WinningLines: {winningLines?.Count ?? 0}");
                 _logger.LogInformation($"💾 MEMORY POOL: Created={poolStats.totalCreated}, Reused={poolStats.totalReused}, PoolSize={poolStats.poolSize}");
                 
+                // Update player session statistics (fire-and-forget for performance)
+                // Capture player info before fire-and-forget task to avoid disposed context
+                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Unknown";
+                
+                if (!string.IsNullOrEmpty(playerId))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await UpdatePlayerSessionStatsAsync(playerId, username, totalBet, monetaryPayout, result, winningLines?.Count > 0);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error updating player session stats");
+                        }
+                    });
+                }
+                else
+                {
+                    _logger.LogWarning("No player ID found in JWT token - skipping session stats update");
+                }
+                
                 return Ok(new
                 {
                     grid,
@@ -687,6 +714,71 @@ namespace BloodSuckersSlot.Api.Controllers
             {
                 _logger.LogError(ex, "❌ Failed to get auto-spin sessions");
                 return StatusCode(500, new { error = "Failed to get auto-spin sessions", details = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Update player session statistics after a spin
+        /// </summary>
+        private async Task UpdatePlayerSessionStatsAsync(string playerId, string username, decimal totalBet, decimal monetaryPayout, SpinResult result, bool isWinningSpin)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(playerId))
+                {
+                    _logger.LogWarning("No player ID provided - skipping session stats update");
+                    return;
+                }
+
+                // Get or create active session
+                var session = await _playerSessionService.GetActiveSessionAsync(playerId);
+                if (session == null)
+                {
+                    // Start a new session if none exists
+                    var startRequest = new StartSessionRequest
+                    {
+                        PlayerId = playerId,
+                        Username = username,
+                        InitialBalance = 1000 // Default starting balance
+                    };
+                    
+                    session = await _playerSessionService.StartSessionAsync(startRequest);
+                    if (session == null)
+                    {
+                        _logger.LogWarning("Failed to start new session for player {PlayerId}", playerId);
+                        return;
+                    }
+                }
+
+                // Update session stats
+                var updateRequest = new UpdateSessionStatsRequest
+                {
+                    SessionId = session.SessionId,
+                    PlayerId = playerId,
+                    BetAmount = totalBet,
+                    WinAmount = monetaryPayout,
+                    IsWinningSpin = isWinningSpin,
+                    IsFreeSpin = result.IsFreeSpin,
+                    IsBonusTriggered = result.BonusTriggered,
+                    FreeSpinsAwarded = result.FreeSpinsAwarded,
+                    CurrentBalance = session.CurrentBalance + monetaryPayout - totalBet // Update balance
+                };
+
+                var success = await _playerSessionService.UpdateSessionStatsAsync(updateRequest);
+                if (success)
+                {
+                    _logger.LogInformation("Updated session stats for player {PlayerId}: Bet={Bet:C}, Win={Win:C}, Balance={Balance:C}", 
+                        playerId, totalBet, monetaryPayout, updateRequest.CurrentBalance);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to update session stats for player {PlayerId}", playerId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating player session stats");
+                // Don't throw - session stats update failure shouldn't break the spin
             }
         }
     }

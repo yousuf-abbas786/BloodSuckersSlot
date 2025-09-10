@@ -119,10 +119,14 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<IGamingEntityService, GamingEntityService>();
 builder.Services.AddScoped<IGamingEntityAuthService, GamingEntityAuthService>();
 builder.Services.AddScoped<IJwtService, JwtService>();
+builder.Services.AddScoped<IPlayerSessionService, PlayerSessionService>();
 
 // Register AutoSpinService as both a service and a background service
 builder.Services.AddSingleton<AutoSpinService>();
 builder.Services.AddHostedService<AutoSpinService>(provider => provider.GetRequiredService<AutoSpinService>());
+
+// Register PlayerSessionCleanupService
+builder.Services.AddHostedService<PlayerSessionCleanupService>();
 
 var app = builder.Build();
 

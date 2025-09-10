@@ -1,17 +1,24 @@
 @page "/spin"
 @using BloodSuckersSlot.Web.Models
 @using BloodSuckersSlot.Web.Services
+@using BloodSuckersSlot.Web.Components
 @using global::Shared
 @using System.Text.Json
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject IConfiguration Configuration
+@inject IPlayerSessionService PlayerSessionService
 @implements IDisposable
 
 <PageTitle>Spin Page</PageTitle>
 
 <div class="container-fluid">
     <div class="row">
+        <!-- Player Stats Sidebar -->
+        <div class="col-md-4">
+            <PlayerStats />
+        </div>
+        
         <!-- Main Spin Area -->
         <div class="col-md-8">
             <div class="card">
@@ -1200,6 +1207,10 @@
                 }
                 
                 ProcessWinningLinesFromApi(apiWinningLines);
+                
+                // Update player session statistics
+                await UpdatePlayerSessionStats(totalBet, monetaryPayout, lastSpinResult, apiWinningLines.Count > 0);
+                
                 StateHasChanged();
 
                 // Parse stats
@@ -1630,6 +1641,37 @@
         
         // Fallback to sym0.png if parsing fails
         return "sym0.png";
+    }
+
+    /// <summary>
+    /// Update player session statistics after a spin
+    /// </summary>
+    private async Task UpdatePlayerSessionStats(decimal totalBet, decimal monetaryPayout, SpinResult spinResult, bool isWinningSpin)
+    {
+        try
+        {
+            var success = await PlayerSessionService.UpdateSessionStatsAsync(
+                totalBet, 
+                monetaryPayout, 
+                isWinningSpin, 
+                spinResult.IsFreeSpin, 
+                spinResult.BonusTriggered, 
+                spinResult.FreeSpinsAwarded
+            );
+
+            if (success)
+            {
+                await JS.InvokeVoidAsync("console.log", $"Updated player session stats: Bet={totalBet:C}, Win={monetaryPayout:C}, Winning={isWinningSpin}");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("console.warn", "Failed to update player session stats");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Error updating player session stats:", ex.Message);
+        }
     }
 
     public void Dispose()

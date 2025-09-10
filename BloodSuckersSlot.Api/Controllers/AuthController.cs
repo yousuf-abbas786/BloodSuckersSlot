@@ -11,12 +11,14 @@ namespace BloodSuckersSlot.Api.Controllers
     {
         private readonly IGamingEntityAuthService _entityAuthService;
         private readonly IJwtService _jwtService;
+        private readonly IPlayerSessionService _playerSessionService;
         private readonly ILogger<AuthController> _logger;
 
-        public AuthController(IGamingEntityAuthService entityAuthService, IJwtService jwtService, ILogger<AuthController> logger)
+        public AuthController(IGamingEntityAuthService entityAuthService, IJwtService jwtService, IPlayerSessionService playerSessionService, ILogger<AuthController> logger)
         {
             _entityAuthService = entityAuthService;
             _jwtService = jwtService;
+            _playerSessionService = playerSessionService;
             _logger = logger;
         }
 
@@ -310,11 +312,27 @@ namespace BloodSuckersSlot.Api.Controllers
         /// Logout user (client-side token removal)
         /// </summary>
         [HttpPost("logout")]
-        public IActionResult Logout()
+        public async Task<IActionResult> Logout()
         {
-            // In a stateless JWT implementation, logout is handled client-side
-            // by removing the token from storage
-            return Ok(new { message = "Logged out successfully" });
+            try
+            {
+                // End the player session when logging out
+                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrEmpty(playerId))
+                {
+                    await _playerSessionService.EndSessionByPlayerIdAsync(playerId);
+                    _logger.LogInformation("Ended session for player {PlayerId} on logout", playerId);
+                }
+
+                // In a stateless JWT implementation, logout is handled client-side
+                // by removing the token from storage
+                return Ok(new { message = "Logged out successfully and session ended" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during logout");
+                return Ok(new { message = "Logged out successfully" }); // Still return success for client
+            }
         }
     }
 }
