@@ -6,6 +6,7 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject IConfiguration Configuration
+@implements IDisposable
 
 <PageTitle>Spin Page</PageTitle>
 
@@ -93,10 +94,11 @@
                         </div>
                     </div>
 
-                    <!-- Spin Button -->
+                    <!-- Spin Controls -->
                     <div class="text-center mb-4">
-                        <button class="btn btn-primary btn-lg" @onclick="PerformSpin" 
-                                disabled="@(isSpinning || isLoadingReelSets || !reelSetsLoaded)">
+                        <!-- Manual Spin Button -->
+                        <button class="btn btn-primary btn-lg me-3" @onclick="PerformSpin" 
+                                disabled="@(isSpinning || isLoadingReelSets || !reelSetsLoaded || isAutoSpinning)">
                             @if (isSpinning)
                             {
                                 <span class="spinner-border spinner-border-sm me-2" role="status"></span>
@@ -110,12 +112,131 @@
                             {
                                 <span>⏳ Waiting...</span>
                             }
+                            else if (isAutoSpinning)
+                            {
+                                <span>🚫 Auto-Spin Active</span>
+                            }
                             else
                             {
                                 <span>🎰 SPIN</span>
                             }
                         </button>
+
+                        <!-- Auto-Spin Controls -->
+                        @if (!isAutoSpinning)
+                        {
+                            <button class="btn btn-success btn-lg" @onclick="StartAutoSpin" 
+                                    disabled="@(isSpinning || isLoadingReelSets || !reelSetsLoaded)">
+                                <span>🔄 AUTO-SPIN</span>
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-danger btn-lg" @onclick="StopAutoSpin">
+                                <span>🛑 STOP AUTO-SPIN</span>
+                            </button>
+                        }
                     </div>
+
+                    <!-- Auto-Spin Configuration -->
+                    @if (!isAutoSpinning)
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h6>🎰 Auto-Spin Configuration</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="autoSpinCount">Number of Spins: @autoSpinCount</label>
+                                    <input type="range" id="autoSpinCount" class="form-range"
+                                           min="1" max="1000" step="1"
+                                           value="@autoSpinCount" @onchange="OnAutoSpinCountChanged" />
+                                    <div class="d-flex justify-content-between">
+                                        <small>1</small>
+                                        <small>1000</small>
+                                    </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="autoSpinDelay">Delay Between Spins: @autoSpinDelayMs ms</label>
+                                            <input type="range" id="autoSpinDelay" class="form-range" 
+                                                   min="500" max="5000" step="100" 
+                                                   value="@autoSpinDelayMs" @onchange="OnAutoSpinDelayChanged" />
+                                            <div class="d-flex justify-content-between">
+                                                <small>500ms</small>
+                                                <small>5s</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-center mt-3">
+                                    <small class="text-muted">
+                                        Total Auto-Spin Duration: @(TimeSpan.FromMilliseconds(autoSpinCount * autoSpinDelayMs).TotalSeconds.ToString("F1")) seconds
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Auto-Spin Status -->
+                    @if (isAutoSpinning)
+                    {
+                        <div class="card mb-4">
+                            <div class="card-header bg-success text-white">
+                                <h6>🔄 Auto-Spin Active</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row text-center">
+                                    <div class="col-md-3">
+                                        <div class="card">
+                                            <div class="card-body">
+                                                <h6>Spins Remaining</h6>
+                                                <h4 class="text-primary">@autoSpinRemaining</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card">
+                                            <div class="card-body">
+                                                <h6>Completed</h6>
+                                                <h4 class="text-success">@(autoSpinCount - autoSpinRemaining)</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card">
+                                            <div class="card-body">
+                                                <h6>Auto-Spin Wins</h6>
+                                                <h4 class="text-warning">@autoSpinTotalWins.ToString("C")</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="card">
+                                            <div class="card-body">
+                                                <h6>Auto-Spin Bets</h6>
+                                                <h4 class="text-info">@autoSpinTotalBets.ToString("C")</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <div class="progress">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                                             role="progressbar" 
+                                             style="width: @(GetAutoSpinProgress())%" 
+                                             aria-valuenow="@(GetAutoSpinProgress())" 
+                                             aria-valuemin="0" aria-valuemax="100">
+                                            @(GetAutoSpinProgress().ToString("F1"))%
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
 
                     <!-- Grid Display -->
                     @if (currentGrid != null)
@@ -608,6 +729,16 @@
     private decimal totalBet = 2.50m;
     private decimal lastWin = 0.00m;
 
+    // Auto-Spin Variables
+    private bool isAutoSpinning = false;
+    private string? currentAutoSpinId = null;
+    private int autoSpinCount = 10;
+    private int autoSpinDelayMs = 1000;
+    private int autoSpinRemaining = 0;
+    private decimal autoSpinTotalWins = 0.00m;
+    private decimal autoSpinTotalBets = 0.00m;
+    private Timer? autoSpinTimer = null;
+
     // Chart data
     private List<string> rtpLabels = new();
     private List<double> rtpData = new();
@@ -711,6 +842,395 @@
             UpdateBetCalculations();
             StateHasChanged();
         }
+    }
+
+    // Auto-Spin Methods
+    private void OnAutoSpinCountChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int newValue))
+        {
+            autoSpinCount = Math.Max(1, Math.Min(1000, newValue));
+            StateHasChanged();
+        }
+    }
+
+    private void OnAutoSpinDelayChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int newValue))
+        {
+            autoSpinDelayMs = Math.Max(500, Math.Min(5000, newValue));
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartAutoSpin()
+    {
+        if (isAutoSpinning || isSpinning) return;
+
+        try
+        {
+            var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
+            var apiUrl = $"{apiBaseUrl}/api/spin/autospin/start";
+            
+            var request = new
+            {
+                PlayerId = "default", // Single player for now
+                SpinCount = autoSpinCount,
+                SpinDelayMs = autoSpinDelayMs,
+                Level = level,
+                CoinValue = coinValue
+            };
+
+            await JS.InvokeVoidAsync("console.log", $"🎰 Starting auto-spin: {autoSpinCount} spins, {autoSpinDelayMs}ms delay");
+            
+            var response = await Http.PostAsJsonAsync(apiUrl, request);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.log", $"Auto-spin started: {json}");
+                
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                
+                currentAutoSpinId = root.GetProperty("autoSpinId").GetString();
+                isAutoSpinning = true;
+                autoSpinRemaining = autoSpinCount;
+                autoSpinTotalWins = 0.00m;
+                autoSpinTotalBets = 0.00m;
+                
+                // Start the auto-spin loop
+                _ = Task.Run(async () => await AutoSpinLoop());
+                
+                await JS.InvokeVoidAsync("console.log", $"✅ Auto-spin started with ID: {currentAutoSpinId}");
+                StateHasChanged();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.error", $"Failed to start auto-spin: {errorContent}");
+                await JS.InvokeVoidAsync("alert", "Failed to start auto-spin. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Auto-spin start error:", ex.Message);
+            await JS.InvokeVoidAsync("alert", "Failed to start auto-spin. Please try again.");
+        }
+    }
+
+    private async Task StopAutoSpin()
+    {
+        if (!isAutoSpinning || string.IsNullOrEmpty(currentAutoSpinId)) return;
+
+        try
+        {
+            var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
+            var apiUrl = $"{apiBaseUrl}/api/spin/autospin/stop/{currentAutoSpinId}";
+            
+            await JS.InvokeVoidAsync("console.log", $"🛑 Stopping auto-spin: {currentAutoSpinId}");
+            
+            var response = await Http.PostAsync(apiUrl, null);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.log", $"Auto-spin stopped: {json}");
+                
+                // Stop the auto-spin loop (no timer to dispose)
+                
+                // Reset auto-spin state
+                isAutoSpinning = false;
+                currentAutoSpinId = null;
+                autoSpinRemaining = 0;
+                
+                await JS.InvokeVoidAsync("console.log", "✅ Auto-spin stopped successfully");
+                StateHasChanged();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.error", $"Failed to stop auto-spin: {errorContent}");
+                await JS.InvokeVoidAsync("alert", "Failed to stop auto-spin. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Auto-spin stop error:", ex.Message);
+            await JS.InvokeVoidAsync("alert", "Failed to stop auto-spin. Please try again.");
+        }
+    }
+
+    private async Task StopAutoSpinLocal()
+    {
+        // Local stop method that doesn't call the backend API
+        // Used when auto-spin completes naturally or encounters an error
+        try
+        {
+            await JS.InvokeVoidAsync("console.log", "🛑 Stopping auto-spin locally (no backend call)");
+            
+            // Reset auto-spin state
+            isAutoSpinning = false;
+            currentAutoSpinId = null;
+            autoSpinRemaining = 0;
+            
+            await JS.InvokeVoidAsync("console.log", "✅ Auto-spin stopped locally");
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Local auto-spin stop error:", ex.Message);
+        }
+    }
+
+    private async Task AutoSpinLoop()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("console.log", $"🎰 Starting auto-spin loop: {autoSpinCount} spins");
+            
+            for (int i = 0; i < autoSpinCount && isAutoSpinning; i++)
+            {
+                if (!isAutoSpinning) break; // Check if stopped externally
+                
+                await JS.InvokeVoidAsync("console.log", $"🔄 Auto-spin: {autoSpinCount - i} spins remaining");
+                
+                // Perform the spin
+                await PerformSpinInternal();
+                
+                // Update auto-spin counters
+                autoSpinRemaining = autoSpinCount - i - 1;
+                autoSpinTotalBets += totalBet;
+                if (lastSpinResult != null)
+                {
+                    autoSpinTotalWins += (decimal)lastSpinResult.TotalWin * coinValue;
+                }
+                
+                // Update UI
+                await InvokeAsync(StateHasChanged);
+                
+                // Wait for the specified delay (except for the last spin)
+                if (i < autoSpinCount - 1)
+                {
+                    await Task.Delay(autoSpinDelayMs);
+                }
+            }
+            
+            if (isAutoSpinning)
+            {
+                await JS.InvokeVoidAsync("console.log", "✅ Auto-spin completed");
+                await InvokeAsync(async () => await StopAutoSpinLocal());
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Auto-spin loop error:", ex.Message);
+            await InvokeAsync(async () => await StopAutoSpinLocal());
+        }
+    }
+
+    private async Task PerformAutoSpin()
+    {
+        // This method is now deprecated in favor of AutoSpinLoop
+        // Keeping it for backward compatibility
+        if (!isAutoSpinning || autoSpinRemaining <= 0) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("console.log", $"🔄 Auto-spin: {autoSpinRemaining} spins remaining");
+            
+            // Perform the spin using the existing PerformSpin logic
+            await PerformSpinInternal();
+            
+            // Update auto-spin counters
+            autoSpinRemaining--;
+            autoSpinTotalBets += totalBet;
+            if (lastSpinResult != null)
+            {
+                autoSpinTotalWins += (decimal)lastSpinResult.TotalWin * coinValue;
+            }
+            
+            // Check if auto-spin should continue
+            if (autoSpinRemaining <= 0)
+            {
+                await JS.InvokeVoidAsync("console.log", "✅ Auto-spin completed");
+                await StopAutoSpin();
+            }
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Auto-spin execution error:", ex.Message);
+            // Stop auto-spin on error
+            await StopAutoSpin();
+        }
+    }
+
+    private async Task PerformSpinInternal()
+    {
+        if (isSpinning) return;
+
+        isSpinning = true;
+        StateHasChanged();
+
+        try
+        {
+            var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
+            var apiUrl = $"{apiBaseUrl}/api/spin/spin";
+            
+            var response = await Http.PostAsJsonAsync(apiUrl, new { 
+                BetAmount = betInCoins, // Legacy support
+                Level = level,
+                CoinValue = coinValue
+            });
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                // Parse grid
+                var grid = root.GetProperty("grid");
+                currentGrid = new string[5][];
+                int colIdx = 0;
+                foreach (var col in grid.EnumerateArray())
+                {
+                    var colArr = new string[3];
+                    int rowIdx = 0;
+                    foreach (var s in col.EnumerateArray())
+                    {
+                        colArr[rowIdx++] = s.GetString() ?? "";
+                    }
+                    currentGrid[colIdx++] = colArr;
+                }
+
+                // Parse monetary payout
+                decimal monetaryPayout = 0.00m;
+                if (root.TryGetProperty("monetaryPayout", out var monetaryPayoutProp))
+                {
+                    monetaryPayout = monetaryPayoutProp.GetDecimal();
+                    lastWin = monetaryPayout;
+                }
+
+                // Parse spin result
+                var spinResult = root.GetProperty("result");
+                lastSpinResult = new SpinResult
+                {
+                    TotalWin = spinResult.GetProperty("totalWin").GetDouble(),
+                    LineWin = spinResult.GetProperty("lineWin").GetDouble(),
+                    WildWin = spinResult.GetProperty("wildWin").GetDouble(),
+                    ScatterWin = spinResult.GetProperty("scatterWin").GetDouble(),
+                    BonusWin = spinResult.GetProperty("bonusWin").GetDouble(),
+                    ScatterCount = spinResult.GetProperty("scatterCount").GetInt32(),
+                    BonusLog = spinResult.GetProperty("bonusLog").GetString() ?? "",
+                    IsFreeSpin = spinResult.GetProperty("isFreeSpin").GetBoolean(),
+                    BonusTriggered = spinResult.GetProperty("bonusTriggered").GetBoolean(),
+                    FreeSpinsRemaining = spinResult.GetProperty("freeSpinsRemaining").GetInt32(),
+                    FreeSpinsAwarded = spinResult.GetProperty("freeSpinsAwarded").GetInt32(),
+                    TotalFreeSpinsAwarded = spinResult.GetProperty("totalFreeSpinsAwarded").GetInt32(),
+                    TotalBonusesTriggered = spinResult.GetProperty("totalBonusesTriggered").GetInt32(),
+                    SpinType = spinResult.GetProperty("spinType").GetString() ?? ""
+                };
+
+                // Parse chosen reel set
+                var reelSet = root.GetProperty("chosenReelSet");
+                chosenReelSet = new
+                {
+                    Name = reelSet.GetProperty("name").GetString() ?? "",
+                    ExpectedRtp = reelSet.GetProperty("expectedRtp").GetDouble(),
+                    EstimatedHitRate = reelSet.GetProperty("estimatedHitRate").GetDouble()
+                };
+
+                // Parse winning lines
+                var apiWinningLines = new List<ApiWinningLine>();
+                var winningLinesArray = root.GetProperty("winningLines");
+                
+                foreach (var line in winningLinesArray.EnumerateArray())
+                {
+                    try
+                    {
+                        var symbol = line.TryGetProperty("symbol", out var symbolProp) ? symbolProp.GetString() ?? "" : "";
+                        var count = line.TryGetProperty("count", out var countProp) ? countProp.GetInt32() : 0;
+                        var winAmount = line.TryGetProperty("winAmount", out var winAmountProp) ? winAmountProp.GetDouble() : 0.0;
+                        var svgPath = line.TryGetProperty("svgPath", out var svgPathProp) ? svgPathProp.GetString() ?? "" : "";
+                        
+                        var apiLine = new ApiWinningLine
+                        {
+                            Symbol = symbol,
+                            Count = count,
+                            WinAmount = winAmount,
+                            SvgPath = svgPath,
+                            PaylineType = line.TryGetProperty("paylineType", out var paylineTypeProp) ? paylineTypeProp.GetString() ?? "" : "",
+                            PaylineIndex = line.TryGetProperty("paylineIndex", out var paylineIndexProp) ? paylineIndexProp.GetInt32() : -1,
+                            Positions = new List<Position>(),
+                            FullPaylinePath = new List<Position>()
+                        };
+                        
+                        // Parse positions
+                        if (line.TryGetProperty("positions", out var positionsProp))
+                        {
+                            foreach (var pos in positionsProp.EnumerateArray())
+                            {
+                                var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
+                                var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
+                                apiLine.Positions.Add(new Position { Col = col, Row = row });
+                            }
+                        }
+                        
+                        // Parse full payline path
+                        if (line.TryGetProperty("fullPaylinePath", out var fullPaylinePathProp))
+                        {
+                            foreach (var pos in fullPaylinePathProp.EnumerateArray())
+                            {
+                                var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
+                                var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
+                                apiLine.FullPaylinePath.Add(new Position { Col = col, Row = row });
+                            }
+                        }
+                        
+                        apiWinningLines.Add(apiLine);
+                    }
+                    catch (Exception ex)
+                    {
+                        await JS.InvokeVoidAsync("console.error", $"Error parsing winning line: {ex.Message}");
+                    }
+                }
+                
+                ProcessWinningLinesFromApi(apiWinningLines);
+                StateHasChanged();
+
+                // Parse stats
+                currentRtp = root.GetProperty("rtp").GetDouble();
+                currentHitRate = root.GetProperty("hitRate").GetDouble();
+                totalSpins++;
+
+                // Update charts
+                await UpdateChartsWithNewData();
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.error", $"API Error: {response.StatusCode} - {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Spin error:", ex.Message);
+        }
+        finally
+        {
+            isSpinning = false;
+            StateHasChanged();
+        }
+    }
+
+    private double GetAutoSpinProgress()
+    {
+        if (autoSpinCount <= 0) return 0;
+        return ((double)(autoSpinCount - autoSpinRemaining) / autoSpinCount) * 100;
     }
 
     private bool IsWinningPosition(int col, int row)
@@ -857,206 +1377,13 @@
 
     private async Task PerformSpin()
     {
-        if (isSpinning) return;
+        if (isSpinning || isAutoSpinning) return;
 
-        isSpinning = true;
-        StateHasChanged();
-
-        try
-        {
-            var apiBaseUrl = Configuration["ApiBaseUrl"] ?? "http://localhost:5000";
-            var apiUrl = $"{apiBaseUrl}/api/spin/spin";
-            await JS.InvokeVoidAsync("console.log", $"Calling API: {apiUrl}");
-            
-            var response = await Http.PostAsJsonAsync(apiUrl, new { 
-                BetAmount = betInCoins, // Legacy support
-                Level = level,
-                CoinValue = coinValue
-            });
-            
-            await JS.InvokeVoidAsync("console.log", $"📤 Sent to API - Level: {level}, CoinValue: {coinValue:C}, BetInCoins: {betInCoins}");
-            await JS.InvokeVoidAsync("console.log", $"API Response Status: {response.StatusCode}");
-            
-            if (response.IsSuccessStatusCode)
-            {
-                var json = await response.Content.ReadAsStringAsync();
-                await JS.InvokeVoidAsync("console.log", $"API Response: {json}");
-                
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                // Parse grid
-                var grid = root.GetProperty("grid");
-                currentGrid = new string[5][];
-                int colIdx = 0;
-                foreach (var col in grid.EnumerateArray())
-                {
-                    var colArr = new string[3];
-                    int rowIdx = 0;
-                    foreach (var s in col.EnumerateArray())
-                    {
-                        colArr[rowIdx++] = s.GetString() ?? "";
-                    }
-                    currentGrid[colIdx++] = colArr;
-                }
-
-                // Parse monetary payout
-                decimal monetaryPayout = 0.00m;
-                if (root.TryGetProperty("monetaryPayout", out var monetaryPayoutProp))
-                {
-                    monetaryPayout = monetaryPayoutProp.GetDecimal();
-                    lastWin = monetaryPayout;
-                    await JS.InvokeVoidAsync("console.log", $"✅ Found monetaryPayout: {monetaryPayout:C}");
-                }
-                else
-                {
-                    await JS.InvokeVoidAsync("console.log", "❌ No monetaryPayout found in API response");
-                }
-
-                // Debug: Check if result.TotalWin is available
-                if (root.TryGetProperty("result", out var resultProp))
-                {
-                    if (resultProp.TryGetProperty("totalWin", out var totalWinProp))
-                    {
-                        var totalWin = totalWinProp.GetDouble();
-                        await JS.InvokeVoidAsync("console.log", $"✅ Found result.totalWin: {totalWin} coins");
-                    }
-                    else
-                    {
-                        await JS.InvokeVoidAsync("console.log", "❌ No result.totalWin found in API response");
-                    }
-                }
-
-                // Parse spin result
-                var spinResult = root.GetProperty("result");
-                lastSpinResult = new SpinResult
-                {
-                    TotalWin = spinResult.GetProperty("totalWin").GetDouble(),
-                    LineWin = spinResult.GetProperty("lineWin").GetDouble(),
-                    WildWin = spinResult.GetProperty("wildWin").GetDouble(),
-                    ScatterWin = spinResult.GetProperty("scatterWin").GetDouble(),
-                    BonusWin = spinResult.GetProperty("bonusWin").GetDouble(),
-                    ScatterCount = spinResult.GetProperty("scatterCount").GetInt32(),
-                    BonusLog = spinResult.GetProperty("bonusLog").GetString() ?? "",
-                    IsFreeSpin = spinResult.GetProperty("isFreeSpin").GetBoolean(),
-                    BonusTriggered = spinResult.GetProperty("bonusTriggered").GetBoolean(),
-                    
-                    // Parse new free spin and bonus tracking fields
-                    FreeSpinsRemaining = spinResult.GetProperty("freeSpinsRemaining").GetInt32(),
-                    FreeSpinsAwarded = spinResult.GetProperty("freeSpinsAwarded").GetInt32(),
-                    TotalFreeSpinsAwarded = spinResult.GetProperty("totalFreeSpinsAwarded").GetInt32(),
-                    TotalBonusesTriggered = spinResult.GetProperty("totalBonusesTriggered").GetInt32(),
-                    SpinType = spinResult.GetProperty("spinType").GetString() ?? ""
-                };
-
-                // Debug logging for bonus tracking
-                await JS.InvokeVoidAsync("console.log", $"🎰 BONUS DEBUG: BonusTriggered={lastSpinResult.BonusTriggered}, TotalBonusesTriggered={lastSpinResult.TotalBonusesTriggered}, BonusLog='{lastSpinResult.BonusLog}'");
-
-                // Parse chosen reel set
-                var reelSet = root.GetProperty("chosenReelSet");
-                chosenReelSet = new
-                {
-                    Name = reelSet.GetProperty("name").GetString() ?? "",
-                    ExpectedRtp = reelSet.GetProperty("expectedRtp").GetDouble(),
-                    EstimatedHitRate = reelSet.GetProperty("estimatedHitRate").GetDouble()
-                };
-
-                // Parse winning lines
-                var apiWinningLines = new List<ApiWinningLine>();
-                var winningLinesArray = root.GetProperty("winningLines");
-                await JS.InvokeVoidAsync("console.log", $"Winning lines array count: {winningLinesArray.GetArrayLength()}");
-                
-                foreach (var line in winningLinesArray.EnumerateArray())
-                {
-                    await JS.InvokeVoidAsync("console.log", $"Raw winning line JSON: {line.GetRawText()}");
-                    
-                    try
-                    {
-                        // Try to parse manually to debug the issue
-                        var symbol = line.TryGetProperty("symbol", out var symbolProp) ? symbolProp.GetString() ?? "" : "";
-                        var count = line.TryGetProperty("count", out var countProp) ? countProp.GetInt32() : 0;
-                        var winAmount = line.TryGetProperty("winAmount", out var winAmountProp) ? winAmountProp.GetDouble() : 0.0;
-                        var svgPath = line.TryGetProperty("svgPath", out var svgPathProp) ? svgPathProp.GetString() ?? "" : "";
-                        
-                        await JS.InvokeVoidAsync("console.log", $"Parsed manually - Symbol: '{symbol}', Count: {count}, WinAmount: {winAmount}, SvgPath: '{svgPath}'");
-                        
-                                                 var apiLine = new ApiWinningLine
-                         {
-                             Symbol = symbol,
-                             Count = count,
-                             WinAmount = winAmount,
-                             SvgPath = svgPath,
-                             PaylineType = line.TryGetProperty("paylineType", out var paylineTypeProp) ? paylineTypeProp.GetString() ?? "" : "",
-                             PaylineIndex = line.TryGetProperty("paylineIndex", out var paylineIndexProp) ? paylineIndexProp.GetInt32() : -1,
-                             Positions = new List<Position>(),
-                             FullPaylinePath = new List<Position>()
-                         };
-                        
-                                                 // Parse positions
-                         if (line.TryGetProperty("positions", out var positionsProp))
-                         {
-                             foreach (var pos in positionsProp.EnumerateArray())
-                             {
-                                 var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
-                                 var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
-                                 apiLine.Positions.Add(new Position { Col = col, Row = row });
-                             }
-                         }
-                         
-                         // Parse full payline path
-                         if (line.TryGetProperty("fullPaylinePath", out var fullPaylinePathProp))
-                         {
-                             foreach (var pos in fullPaylinePathProp.EnumerateArray())
-                             {
-                                 var col = pos.TryGetProperty("col", out var colProp) ? colProp.GetInt32() : 0;
-                                 var row = pos.TryGetProperty("row", out var rowProp) ? rowProp.GetInt32() : 0;
-                                 apiLine.FullPaylinePath.Add(new Position { Col = col, Row = row });
-                             }
-                         }
-                        
-                        apiWinningLines.Add(apiLine);
-                        await JS.InvokeVoidAsync("console.log", $"Added winning line: Symbol='{apiLine.Symbol}', Count={apiLine.Count}, WinAmount={apiLine.WinAmount}, Positions={apiLine.Positions.Count}, SvgPath='{apiLine.SvgPath}'");
-                    }
-                    catch (Exception ex)
-                    {
-                        await JS.InvokeVoidAsync("console.error", $"Error parsing winning line: {ex.Message}");
-                    }
-                }
-                
-                await JS.InvokeVoidAsync("console.log", $"Total winning lines processed: {apiWinningLines.Count}");
-                ProcessWinningLinesFromApi(apiWinningLines);
-                await JS.InvokeVoidAsync("console.log", $"Frontend winning lines: {winningLines.Count}, Winning positions: {winningPositions.Count}");
-                
-                // Force UI update to show winning lines
-                StateHasChanged();
-
-                // Parse stats
-                currentRtp = root.GetProperty("rtp").GetDouble();
-                currentHitRate = root.GetProperty("hitRate").GetDouble();
-                totalSpins++;
-
-                await JS.InvokeVoidAsync("console.log", $"Spin completed - TotalWin: {lastSpinResult?.TotalWin}, RTP: {currentRtp}, HitRate: {currentHitRate}");
-
-                // Update charts
-                await UpdateChartsWithNewData();
-            }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                await JS.InvokeVoidAsync("console.error", $"API Error: {response.StatusCode} - {errorContent}");
-                await JS.InvokeVoidAsync("alert", "Spin failed. Please try again.");
-            }
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("console.error", "Spin error:", ex.Message);
-            await JS.InvokeVoidAsync("alert", "Spin failed. Please try again.");
-        }
-        finally
-        {
-            isSpinning = false;
-            StateHasChanged();
-        }
+        await JS.InvokeVoidAsync("console.log", $"🎰 Manual spin requested - Level: {level}, CoinValue: {coinValue:C}, BetInCoins: {betInCoins}");
+        
+        await PerformSpinInternal();
+        
+        await JS.InvokeVoidAsync("console.log", $"✅ Manual spin completed - TotalWin: {lastSpinResult?.TotalWin}, RTP: {currentRtp}, HitRate: {currentHitRate}");
     }
 
     private string GetSymbolClass(string symbol)
@@ -1286,22 +1613,27 @@
          return path.ToString();
      }
      
-     private string GetSymbolImageName(string symbol)
-     {
-         // Convert symbol name (e.g., "SYM0") to image filename (e.g., "sym0.png")
-         if (string.IsNullOrEmpty(symbol)) return "sym0.png";
-         
-         // Extract the number from the symbol name
-         if (symbol.StartsWith("SYM", StringComparison.OrdinalIgnoreCase))
-         {
-             string numberPart = symbol.Substring(3);
-             if (int.TryParse(numberPart, out int number))
-             {
-                 return $"sym{number}.png";
-             }
-         }
-         
-         // Fallback to sym0.png if parsing fails
-         return "sym0.png";
-     }
-} 
+    private string GetSymbolImageName(string symbol)
+    {
+        // Convert symbol name (e.g., "SYM0") to image filename (e.g., "sym0.png")
+        if (string.IsNullOrEmpty(symbol)) return "sym0.png";
+        
+        // Extract the number from the symbol name
+        if (symbol.StartsWith("SYM", StringComparison.OrdinalIgnoreCase))
+        {
+            string numberPart = symbol.Substring(3);
+            if (int.TryParse(numberPart, out int number))
+            {
+                return $"sym{number}.png";
+            }
+        }
+        
+        // Fallback to sym0.png if parsing fails
+        return "sym0.png";
+    }
+
+    public void Dispose()
+    {
+        // No timer cleanup needed with new AutoSpinLoop approach
+    }
+}

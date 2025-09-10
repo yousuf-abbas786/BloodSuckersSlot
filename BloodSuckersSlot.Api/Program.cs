@@ -4,6 +4,7 @@ using BloodSuckersSlot.Api.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Conventions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -118,6 +119,10 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddScoped<IGamingEntityService, GamingEntityService>();
 builder.Services.AddScoped<IGamingEntityAuthService, GamingEntityAuthService>();
 builder.Services.AddScoped<IJwtService, JwtService>();
+
+// Register AutoSpinService as both a service and a background service
+builder.Services.AddSingleton<AutoSpinService>();
+builder.Services.AddHostedService<AutoSpinService>(provider => provider.GetRequiredService<AutoSpinService>());
 
 var app = builder.Build();
 

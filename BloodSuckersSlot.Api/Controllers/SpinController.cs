@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Diagnostics;
 using BloodSuckersSlot.Api.Models;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using BloodSuckersSlot.Api.Services;
 
 namespace BloodSuckersSlot.Api.Controllers
 {
@@ -19,6 +20,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private static GameConfig _config;
         private readonly PerformanceSettings _performanceSettings;
         private readonly MongoDbSettings _mongoDbSettings;
+        private readonly AutoSpinService _autoSpinService;
         
         // Lazy loading with RTP range caching
         private static readonly Dictionary<string, List<ReelSet>> _rtpRangeCache = new();
@@ -39,11 +41,12 @@ namespace BloodSuckersSlot.Api.Controllers
         private static TimeSpan _prefetchInterval = TimeSpan.FromSeconds(30); // Will be set from config
 
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
-            PerformanceSettings performanceSettings, MongoDbSettings mongoDbSettings)
+            PerformanceSettings performanceSettings, MongoDbSettings mongoDbSettings, AutoSpinService autoSpinService)
         {
             _logger = logger;
             _performanceSettings = performanceSettings;
             _mongoDbSettings = mongoDbSettings;
+            _autoSpinService = autoSpinService;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
             
             // Initialize performance settings from configuration
@@ -507,6 +510,185 @@ namespace BloodSuckersSlot.Api.Controllers
                 cacheEntriesRemoved = cacheSize
             });
         }
+
+        // Auto-Spin Management Endpoints
+        [HttpPost("autospin/start")]
+        public IActionResult StartAutoSpin([FromBody] AutoSpinRequestDto request)
+        {
+            try
+            {
+                if (request.SpinCount <= 0 || request.SpinCount > 1000)
+                {
+                    return BadRequest(new { error = "Spin count must be between 1 and 1000" });
+                }
+
+                if (request.SpinDelayMs < 100 || request.SpinDelayMs > 10000)
+                {
+                    return BadRequest(new { error = "Spin delay must be between 100ms and 10 seconds" });
+                }
+
+                // Validate bet parameters
+                if (!BettingSystem.ValidateBet(request.Level, request.CoinValue, _config.MaxLevel, _config.MinCoinValue, _config.MaxCoinValue))
+                {
+                    return BadRequest(new { error = "Invalid bet parameters" });
+                }
+
+                var autoSpinId = Guid.NewGuid().ToString();
+                var autoSpinSession = new Services.AutoSpinSession
+                {
+                    Id = autoSpinId,
+                    PlayerId = request.PlayerId ?? "default",
+                    SpinCount = request.SpinCount,
+                    RemainingSpins = request.SpinCount,
+                    SpinDelayMs = request.SpinDelayMs,
+                    Level = request.Level,
+                    CoinValue = request.CoinValue,
+                    BetAmount = BettingSystem.CalculateBetInCoins(_config.BaseBetPerLevel, request.Level),
+                    IsActive = true,
+                    StartedAt = DateTime.UtcNow,
+                    TotalWins = 0,
+                    TotalBets = 0
+                };
+
+                // Store session using the background service
+                _autoSpinService.StartSession(autoSpinSession);
+
+                _logger.LogInformation($"🎰 AUTO-SPIN STARTED: Session {autoSpinId}, Player {autoSpinSession.PlayerId}, {request.SpinCount} spins, {request.SpinDelayMs}ms delay");
+
+                return Ok(new
+                {
+                    autoSpinId = autoSpinId,
+                    message = "Auto-spin started successfully",
+                    session = new
+                    {
+                        autoSpinSession.Id,
+                        autoSpinSession.PlayerId,
+                        autoSpinSession.SpinCount,
+                        autoSpinSession.RemainingSpins,
+                        autoSpinSession.SpinDelayMs,
+                        autoSpinSession.Level,
+                        autoSpinSession.CoinValue,
+                        autoSpinSession.IsActive,
+                        autoSpinSession.StartedAt
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to start auto-spin");
+                return StatusCode(500, new { error = "Failed to start auto-spin", details = ex.Message });
+            }
+        }
+
+        [HttpPost("autospin/stop/{autoSpinId}")]
+        public IActionResult StopAutoSpin(string autoSpinId)
+        {
+            try
+            {
+                var session = _autoSpinService.GetSession(autoSpinId);
+                if (session == null)
+                {
+                    return NotFound(new { error = "Auto-spin session not found" });
+                }
+
+                _autoSpinService.StopSession(autoSpinId);
+                
+                _logger.LogInformation($"🛑 AUTO-SPIN STOPPED: Session {autoSpinId}");
+
+                return Ok(new
+                {
+                    message = "Auto-spin stopped successfully",
+                    session = new
+                    {
+                        session.Id,
+                        session.PlayerId,
+                        session.SpinCount,
+                        session.RemainingSpins,
+                        session.TotalWins,
+                        session.TotalBets,
+                        session.IsActive,
+                        session.StartedAt,
+                        session.StoppedAt
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to stop auto-spin");
+                return StatusCode(500, new { error = "Failed to stop auto-spin", details = ex.Message });
+            }
+        }
+
+        [HttpGet("autospin/status/{autoSpinId}")]
+        public IActionResult GetAutoSpinStatus(string autoSpinId)
+        {
+            try
+            {
+                var session = _autoSpinService.GetSession(autoSpinId);
+                if (session == null)
+                {
+                    return NotFound(new { error = "Auto-spin session not found" });
+                }
+
+                return Ok(new
+                {
+                    session = new
+                    {
+                        session.Id,
+                        session.PlayerId,
+                        session.SpinCount,
+                        session.RemainingSpins,
+                        session.SpinDelayMs,
+                        session.Level,
+                        session.CoinValue,
+                        session.IsActive,
+                        session.StartedAt,
+                        session.StoppedAt,
+                        session.TotalWins,
+                        session.TotalBets,
+                        CompletedSpins = session.SpinCount - session.RemainingSpins
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to get auto-spin status");
+                return StatusCode(500, new { error = "Failed to get auto-spin status", details = ex.Message });
+            }
+        }
+
+        [HttpGet("autospin/sessions")]
+        public IActionResult GetAutoSpinSessions()
+        {
+            try
+            {
+                var sessions = _autoSpinService.GetAllSessions();
+                return Ok(new
+                {
+                    sessions = sessions.Select(s => new
+                    {
+                        s.Id,
+                        s.PlayerId,
+                        s.SpinCount,
+                        s.RemainingSpins,
+                        s.SpinDelayMs,
+                        s.Level,
+                        s.CoinValue,
+                        s.IsActive,
+                        s.StartedAt,
+                        s.StoppedAt,
+                        s.TotalWins,
+                        s.TotalBets,
+                        CompletedSpins = s.SpinCount - s.RemainingSpins
+                    }).ToList()
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to get auto-spin sessions");
+                return StatusCode(500, new { error = "Failed to get auto-spin sessions", details = ex.Message });
+            }
+        }
     }
 
     public class SpinRequestDto
@@ -516,4 +698,14 @@ namespace BloodSuckersSlot.Api.Controllers
         public decimal CoinValue { get; set; } = 0.10m;
         // Add more fields as needed (e.g., user/session info)
     }
+
+    public class AutoSpinRequestDto
+    {
+        public string? PlayerId { get; set; }
+        public int SpinCount { get; set; } = 10;
+        public int SpinDelayMs { get; set; } = 1000;
+        public int Level { get; set; } = 1;
+        public decimal CoinValue { get; set; } = 0.10m;
+    }
+
 } 

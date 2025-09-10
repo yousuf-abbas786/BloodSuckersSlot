@@ -1,0 +1,39 @@
+### Auto-Spin API Tests
+### Test the auto-spin functionality
+
+@baseUrl = http://localhost:5000
+@apiUrl = {{baseUrl}}/api/spin
+
+### 1. Start Auto-Spin Session
+POST {{apiUrl}}/autospin/start
+Content-Type: application/json
+
+{
+    "playerId": "test-player-1",
+    "spinCount": 5,
+    "spinDelayMs": 2000,
+    "level": 1,
+    "coinValue": 0.10
+}
+
+### 2. Check Auto-Spin Status
+GET {{apiUrl}}/autospin/status/{{autoSpinId}}
+
+### 3. Get All Auto-Spin Sessions
+GET {{apiUrl}}/autospin/sessions
+
+### 4. Stop Auto-Spin Session
+POST {{apiUrl}}/autospin/stop/{{autoSpinId}}
+
+### 5. Test Manual Spin (for comparison)
+POST {{apiUrl}}/spin
+Content-Type: application/json
+
+{
+    "level": 1,
+    "coinValue": 0.10,
+    "betAmount": 25
+}
+
+### 6. Health Check
+GET {{baseUrl}}/health
