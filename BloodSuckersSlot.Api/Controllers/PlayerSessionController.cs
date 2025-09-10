@@ -86,6 +86,15 @@ namespace BloodSuckersSlot.Api.Controllers
         }
 
         /// <summary>
+        /// Get current active session for the authenticated player (alias for /current)
+        /// </summary>
+        [HttpGet("active")]
+        public async Task<ActionResult<PlayerSessionResponse>> GetActiveSession()
+        {
+            return await GetCurrentSession();
+        }
+
+        /// <summary>
         /// Get session by ID
         /// </summary>
         [HttpGet("{sessionId}")]

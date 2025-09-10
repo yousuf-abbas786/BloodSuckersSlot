@@ -123,7 +123,7 @@ builder.Services.AddScoped<IPlayerSessionService, PlayerSessionService>();
 
 // Register AutoSpinService as both a service and a background service
 builder.Services.AddSingleton<AutoSpinService>();
-builder.Services.AddHostedService<AutoSpinService>(provider => provider.GetRequiredService<AutoSpinService>());
+builder.Services.AddHostedService(provider => provider.GetRequiredService<AutoSpinService>());
 
 // Register PlayerSessionCleanupService
 builder.Services.AddHostedService<PlayerSessionCleanupService>();

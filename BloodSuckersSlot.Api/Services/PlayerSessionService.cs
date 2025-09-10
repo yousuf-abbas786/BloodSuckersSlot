@@ -79,6 +79,16 @@ namespace BloodSuckersSlot.Api.Services
                     .Find(s => s.PlayerId == playerId && s.IsActive)
                     .FirstOrDefaultAsync();
 
+                if (session != null)
+                {
+                    _logger.LogInformation("🔍 Retrieved session {SessionId}: Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}, Bet={Bet:C}, Win={Win:C}", 
+                        session.Id, session.TotalSpins, session.TotalRtp, session.HitRate, session.TotalBet, session.TotalWin);
+                }
+                else
+                {
+                    _logger.LogWarning("❌ No active session found for player {PlayerId}", playerId);
+                }
+
                 return session != null ? MapToResponse(session) : null;
             }
             catch (Exception ex)
@@ -197,9 +207,15 @@ namespace BloodSuckersSlot.Api.Services
                     .Set(s => s.LastActivity, session.LastActivity)
                     .Set(s => s.UpdatedAt, session.UpdatedAt);
 
+                _logger.LogInformation("🔄 Updating session {SessionId}: Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}, Bet={Bet:C}, Win={Win:C}", 
+                    request.SessionId, session.TotalSpins, session.TotalRtp, session.HitRate, request.BetAmount, request.WinAmount);
+
                 var result = await _sessionCollection.UpdateOneAsync(
                     s => s.Id == request.SessionId,
                     update);
+
+                _logger.LogInformation("✅ Database update result: Modified={Modified}, Matched={Matched}", 
+                    result.ModifiedCount, result.MatchedCount);
 
                 return result.ModifiedCount > 0;
             }
@@ -456,7 +472,7 @@ namespace BloodSuckersSlot.Api.Services
 
         private static PlayerSessionResponse MapToResponse(PlayerSession session)
         {
-            return new PlayerSessionResponse
+            var response = new PlayerSessionResponse
             {
                 SessionId = session.Id,
                 PlayerId = session.PlayerId,
@@ -477,6 +493,11 @@ namespace BloodSuckersSlot.Api.Services
                 CurrentBalance = session.CurrentBalance,
                 SessionDuration = session.SessionDuration
             };
+
+            // Debug logging
+            Console.WriteLine($"🔍 MapToResponse: SessionId={response.SessionId}, Spins={response.TotalSpins}, RTP={response.TotalRtp:P2}, HitRate={response.HitRate:P2}");
+
+            return response;
         }
 
         private static PlayerStatsResponse MapToStatsResponse(PlayerStats stats)

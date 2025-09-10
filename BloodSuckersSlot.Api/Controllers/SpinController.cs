@@ -377,8 +377,28 @@ namespace BloodSuckersSlot.Api.Controllers
                 // 🚀 TIMEOUT PROTECTION: Add timeout to prevent hanging
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_performanceSettings.SpinTimeoutSeconds));
                 
-                // Get reel sets based on current RTP needs (lazy loading) with timeout
-                var currentRtp = SpinLogicHelper.GetActualRtp();
+                // Use session-based RTP and Hit Rate from the request (loaded on page initialization)
+                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                PlayerSessionResponse? currentSession = null;
+                double currentRtp = request.CurrentRtp;
+                double currentHitRate = request.CurrentHitRate;
+                
+                _logger.LogInformation($"🎰 SPIN REQUEST: Bet={request.BetAmount}, Current RTP={currentRtp:P2}%, Current Hit Rate={currentHitRate:P2}%");
+                
+                // Get current session for updating (but use request values for calculations)
+                if (!string.IsNullOrEmpty(playerId))
+                {
+                    try
+                    {
+                        currentSession = await _playerSessionService.GetActiveSessionAsync(playerId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get current session for update");
+                    }
+                }
+                
+                // Get reel sets based on current session RTP needs (lazy loading) with timeout
                 List<ReelSet> reelSets;
                 
                 try
@@ -402,8 +422,8 @@ namespace BloodSuckersSlot.Api.Controllers
                     return StatusCode(500, new { error = "No reel sets available for current RTP range." });
                 }
                 
-                // Execute spin with loaded reel sets
-                var (result, grid, chosenSet, winningLines) = SpinLogicHelper.SpinWithReelSets(_config, betInCoins, reelSets);
+                // Execute spin with loaded reel sets using session-based RTP and Hit Rate
+                var (result, grid, chosenSet, winningLines) = SpinLogicHelper.SpinWithReelSets(_config, betInCoins, reelSets, currentRtp, currentHitRate);
                 
                 if (result == null || grid == null || chosenSet == null)
                 {
@@ -431,10 +451,42 @@ namespace BloodSuckersSlot.Api.Controllers
                 _logger.LogInformation($"💾 MEMORY POOL: Created={poolStats.totalCreated}, Reused={poolStats.totalReused}, PoolSize={poolStats.poolSize}");
                 
                 // Update player session statistics (fire-and-forget for performance)
-                // Capture player info before fire-and-forget task to avoid disposed context
-                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
                 var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Unknown";
                 
+                // Update the existing session data in memory for immediate response
+                if (currentSession != null)
+                {
+                    // Update the session data in memory for immediate response
+                    currentSession.TotalSpins++;
+                    currentSession.TotalBet += totalBet;
+                    currentSession.TotalWin += monetaryPayout;
+                    currentSession.CurrentBalance = currentSession.CurrentBalance + monetaryPayout - totalBet;
+                    _logger.LogInformation("🔍 DEBUG: winningLines count: {Count}, winningLines is null: {IsNull}", 
+                        winningLines?.Count ?? -1, winningLines == null);
+                    _logger.LogInformation("🔍 DEBUG: Current WinningSpins before update: {WinningSpins}", currentSession.WinningSpins);
+                    if (winningLines?.Count > 0) 
+                    {
+                        currentSession.WinningSpins++;
+                        _logger.LogInformation("🔍 DEBUG: Incremented WinningSpins to: {WinningSpins}", currentSession.WinningSpins);
+                    }
+                    currentSession.TotalRtp = currentSession.TotalBet > 0 ? (double)(currentSession.TotalWin / currentSession.TotalBet) : 0;
+                    currentSession.HitRate = currentSession.TotalSpins > 0 ? (double)currentSession.WinningSpins / (double)currentSession.TotalSpins : 0;
+                    _logger.LogInformation("🔍 DEBUG: Hit Rate calculation: {WinningSpins} / {TotalSpins} = {HitRate:P2}", 
+                        currentSession.WinningSpins, currentSession.TotalSpins, currentSession.HitRate);
+                    
+                    _logger.LogInformation("✅ Updated session data in memory for immediate response: Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}", 
+                        currentSession.TotalSpins, currentSession.TotalRtp, currentSession.HitRate);
+                    
+                    // Debug: Log the actual session object being returned
+                    _logger.LogInformation("🔍 DEBUG: Session object being returned - SessionId={SessionId}, PlayerId={PlayerId}, TotalBet={TotalBet:C}, TotalWin={TotalWin:C}", 
+                        currentSession.SessionId, currentSession.PlayerId, currentSession.TotalBet, currentSession.TotalWin);
+                }
+                else if (!string.IsNullOrEmpty(playerId))
+                {
+                    _logger.LogWarning("Current session is null but player ID exists - this should not happen");
+                }
+                
+                // Fire-and-forget DB update
                 if (!string.IsNullOrEmpty(playerId))
                 {
                     _ = Task.Run(async () =>
@@ -453,7 +505,19 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     _logger.LogWarning("No player ID found in JWT token - skipping session stats update");
                 }
-                
+
+                // Debug: Log what's being returned in the response
+                _logger.LogInformation("🔍 DEBUG: About to return response - currentSession is null: {IsNull}", currentSession == null);
+                if (currentSession != null)
+                {
+                    _logger.LogInformation("🔍 DEBUG: Response session data - SessionId={SessionId}, Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}", 
+                        currentSession.SessionId, currentSession.TotalSpins, currentSession.TotalRtp, currentSession.HitRate);
+                    
+                    // Serialize to JSON to see exactly what's being sent
+                    var json = System.Text.Json.JsonSerializer.Serialize(currentSession, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                    _logger.LogInformation("🔍 DEBUG: Serialized session JSON: {Json}", json);
+                }
+
                 return Ok(new
                 {
                     grid,
@@ -469,6 +533,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     rtp = actualRtp,
                     hitRate = actualHitRate,
                     winningLines = winningLines ?? new List<WinningLine>(),
+                    currentSession = currentSession,
                     performance = new
                     {
                         spinTimeMs = totalTime,
@@ -720,14 +785,14 @@ namespace BloodSuckersSlot.Api.Controllers
         /// <summary>
         /// Update player session statistics after a spin
         /// </summary>
-        private async Task UpdatePlayerSessionStatsAsync(string playerId, string username, decimal totalBet, decimal monetaryPayout, SpinResult result, bool isWinningSpin)
+        private async Task<PlayerSessionResponse?> UpdatePlayerSessionStatsAsync(string playerId, string username, decimal totalBet, decimal monetaryPayout, SpinResult result, bool isWinningSpin)
         {
             try
             {
                 if (string.IsNullOrEmpty(playerId))
                 {
                     _logger.LogWarning("No player ID provided - skipping session stats update");
-                    return;
+                    return null;
                 }
 
                 // Get or create active session
@@ -746,7 +811,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     if (session == null)
                     {
                         _logger.LogWarning("Failed to start new session for player {PlayerId}", playerId);
-                        return;
+                        return null;
                     }
                 }
 
@@ -767,18 +832,23 @@ namespace BloodSuckersSlot.Api.Controllers
                 var success = await _playerSessionService.UpdateSessionStatsAsync(updateRequest);
                 if (success)
                 {
-                    _logger.LogInformation("Updated session stats for player {PlayerId}: Bet={Bet:C}, Win={Win:C}, Balance={Balance:C}", 
+                    _logger.LogInformation("✅ Updated session stats for player {PlayerId}: Bet={Bet:C}, Win={Win:C}, Balance={Balance:C}", 
                         playerId, totalBet, monetaryPayout, updateRequest.CurrentBalance);
+                    
+                    // Return the updated session data from memory
+                    return session;
                 }
                 else
                 {
-                    _logger.LogWarning("Failed to update session stats for player {PlayerId}", playerId);
+                    _logger.LogWarning("❌ Failed to update session stats for player {PlayerId}", playerId);
+                    return null;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error updating player session stats");
                 // Don't throw - session stats update failure shouldn't break the spin
+                return null;
             }
         }
     }
@@ -788,6 +858,8 @@ namespace BloodSuckersSlot.Api.Controllers
         public int BetAmount { get; set; } = 25; // Legacy support
         public int Level { get; set; } = 1;
         public decimal CoinValue { get; set; } = 0.10m;
+        public double CurrentRtp { get; set; } = 0.0; // Current session RTP
+        public double CurrentHitRate { get; set; } = 0.0; // Current session Hit Rate
         // Add more fields as needed (e.g., user/session info)
     }
 

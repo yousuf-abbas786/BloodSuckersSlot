@@ -5,149 +5,79 @@
 @inject IJSRuntime JS
 @implements IDisposable
 
-<div class="player-stats-container">
-    <div class="stats-header">
-        <h3><i class="fas fa-chart-line"></i> Player Statistics</h3>
-        <div class="stats-controls">
-            <button class="btn btn-sm btn-outline-primary" @onclick="RefreshStats">
-                <i class="fas fa-sync-alt"></i> Refresh
-            </button>
-            <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleView">
-                <i class="fas fa-eye"></i> @(ShowDetailed ? "Simple" : "Detailed")
+<div class="player-stats-compact">
+    <div class="stats-header-compact">
+        <h4><i class="fas fa-chart-line"></i> Player Stats</h4>
+        <div class="stats-controls-compact">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleView" title="@(ShowDetailed ? "Simple View" : "Detailed View")">
+                <i class="fas fa-eye"></i>
             </button>
         </div>
     </div>
 
     @if (isLoading)
     {
-        <div class="loading-spinner">
-            <i class="fas fa-spinner fa-spin"></i> Loading statistics...
+        <div class="loading-compact">
+            <i class="fas fa-spinner fa-spin"></i> Loading...
         </div>
     }
     else if (currentSession != null || playerStats != null)
     {
-        <div class="stats-content">
-            <!-- Current Session Stats -->
+        <div class="stats-content-compact">
+            <!-- Current Session Stats - Always visible -->
             @if (currentSession != null)
             {
-                <div class="session-stats">
-                    <h5><i class="fas fa-play-circle"></i> Current Session</h5>
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <div class="stat-label">Session Duration</div>
-                            <div class="stat-value">@FormatDuration(currentSession.SessionDuration)</div>
+                <div class="session-stats-compact">
+                    <div class="session-row">
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Spins:</span>
+                            <span class="stat-value-compact">@currentSession.TotalSpins</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Spins</div>
-                            <div class="stat-value">@currentSession.TotalSpins</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Bet:</span>
+                            <span class="stat-value-compact">@currentSession.TotalBet.ToString("C")</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Total Bet</div>
-                            <div class="stat-value">@currentSession.TotalBet.ToString("C")</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Win:</span>
+                            <span class="stat-value-compact">@currentSession.TotalWin.ToString("C")</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Total Win</div>
-                            <div class="stat-value">@currentSession.TotalWin.ToString("C")</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">RTP:</span>
+                            <span class="stat-value-compact @GetRtpClass(currentSession.TotalRtp)">@(currentSession.TotalRtp.ToString("P1"))</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Current RTP</div>
-                            <div class="stat-value @GetRtpClass(currentSession.TotalRtp)">@(currentSession.TotalRtp.ToString("P2"))</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Hit Rate:</span>
+                            <span class="stat-value-compact">@(currentSession.HitRate.ToString("P1"))</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Hit Rate</div>
-                            <div class="stat-value">@(currentSession.HitRate.ToString("P2"))</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Current Balance</div>
-                            <div class="stat-value @GetBalanceClass(currentSession.CurrentBalance)">@currentSession.CurrentBalance.ToString("C")</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Max Win</div>
-                            <div class="stat-value">@currentSession.MaxWin.ToString("C")</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Balance:</span>
+                            <span class="stat-value-compact @GetBalanceClass(currentSession.CurrentBalance)">@currentSession.CurrentBalance.ToString("C")</span>
                         </div>
                     </div>
                 </div>
             }
 
-            <!-- Lifetime Stats -->
+            <!-- Lifetime Stats - Only in detailed view -->
             @if (playerStats != null && ShowDetailed)
             {
-                <div class="lifetime-stats">
-                    <h5><i class="fas fa-trophy"></i> Lifetime Statistics</h5>
-                    <div class="stats-grid">
-                        <div class="stat-item">
-                            <div class="stat-label">Total Sessions</div>
-                            <div class="stat-value">@playerStats.TotalSessions</div>
+                <div class="lifetime-stats-compact">
+                    <div class="lifetime-row">
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Sessions:</span>
+                            <span class="stat-value-compact">@playerStats.TotalSessions</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Total Spins</div>
-                            <div class="stat-value">@playerStats.TotalSpins.ToString("N0")</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Total Spins:</span>
+                            <span class="stat-value-compact">@playerStats.TotalSpins.ToString("N0")</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Lifetime Bet</div>
-                            <div class="stat-value">@playerStats.TotalBet.ToString("C")</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Max Win:</span>
+                            <span class="stat-value-compact">@playerStats.MaxWinEver.ToString("C")</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Lifetime Win</div>
-                            <div class="stat-value">@playerStats.TotalWin.ToString("C")</div>
+                        <div class="stat-compact">
+                            <span class="stat-label-compact">Free Spins:</span>
+                            <span class="stat-value-compact">@playerStats.TotalFreeSpinsAwarded.ToString("N0")</span>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Lifetime RTP</div>
-                            <div class="stat-value @GetRtpClass(playerStats.LifetimeRtp)">@(playerStats.LifetimeRtp.ToString("P2"))</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Lifetime Hit Rate</div>
-                            <div class="stat-value">@(playerStats.LifetimeHitRate.ToString("P2"))</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Max Win Ever</div>
-                            <div class="stat-value">@playerStats.MaxWinEver.ToString("C")</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Free Spins Awarded</div>
-                            <div class="stat-value">@playerStats.TotalFreeSpinsAwarded.ToString("N0")</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Bonuses Triggered</div>
-                            <div class="stat-value">@playerStats.TotalBonusesTriggered.ToString("N0")</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">First Session</div>
-                            <div class="stat-value">@(playerStats.FirstSessionDate?.ToString("MMM dd, yyyy") ?? "N/A")</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Last Session</div>
-                            <div class="stat-value">@(playerStats.LastSessionDate?.ToString("MMM dd, yyyy") ?? "N/A")</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-label">Last Login</div>
-                            <div class="stat-value">@(playerStats.LastLoginDate?.ToString("MMM dd, yyyy") ?? "N/A")</div>
-                        </div>
-                    </div>
-                </div>
-            }
-
-            <!-- Session History -->
-            @if (ShowDetailed && sessionHistory.Any())
-            {
-                <div class="session-history">
-                    <h5><i class="fas fa-history"></i> Recent Sessions</h5>
-                    <div class="session-list">
-                        @foreach (var session in sessionHistory.Take(5))
-                        {
-                            <div class="session-item">
-                                <div class="session-info">
-                                    <div class="session-date">@session.SessionStart.ToString("MMM dd, HH:mm")</div>
-                                    <div class="session-duration">@FormatDuration(session.SessionDuration)</div>
-                                </div>
-                                <div class="session-stats">
-                                    <span class="session-spins">@session.TotalSpins spins</span>
-                                    <span class="session-bet">@session.TotalBet.ToString("C")</span>
-                                    <span class="session-win">@session.TotalWin.ToString("C")</span>
-                                    <span class="session-rtp @GetRtpClass(session.TotalRtp)">@(session.TotalRtp.ToString("P1"))</span>
-                                </div>
-                            </div>
-                        }
                     </div>
                 </div>
             }
@@ -155,236 +85,155 @@
     }
     else
     {
-        <div class="no-stats">
+        <div class="no-stats-compact">
             <i class="fas fa-info-circle"></i>
-            <p>No statistics available. Start playing to see your stats!</p>
+            <span>No stats available</span>
         </div>
     }
 </div>
 
 <style>
-    .player-stats-container {
+    .player-stats-compact {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        border-radius: 12px;
-        padding: 20px;
-        margin: 20px 0;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 10px 0;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
         border: 1px solid rgba(255, 255, 255, 0.1);
+        max-height: 120px;
+        overflow: hidden;
     }
 
-    .stats-header {
+    .stats-header-compact {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
-        padding-bottom: 15px;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
 
-    .stats-header h3 {
+    .stats-header-compact h4 {
         color: #fff;
         margin: 0;
-        font-size: 1.4rem;
+        font-size: 1rem;
         font-weight: 600;
     }
 
-    .stats-header h3 i {
+    .stats-header-compact h4 i {
         color: #4CAF50;
-        margin-right: 8px;
+        margin-right: 6px;
+        font-size: 0.9rem;
     }
 
-    .stats-controls {
+    .stats-controls-compact {
         display: flex;
-        gap: 10px;
+        gap: 6px;
     }
 
-    .stats-controls .btn {
-        border-radius: 6px;
-        font-size: 0.85rem;
-        padding: 6px 12px;
+    .stats-controls-compact .btn {
+        border-radius: 4px;
+        font-size: 0.75rem;
+        padding: 4px 8px;
+        min-width: 32px;
     }
 
-    .loading-spinner {
+    .loading-compact {
         text-align: center;
         color: #fff;
-        padding: 40px;
+        padding: 20px;
+        font-size: 0.9rem;
     }
 
-    .loading-spinner i {
-        font-size: 1.5rem;
-        margin-right: 10px;
+    .loading-compact i {
+        margin-right: 6px;
         color: #4CAF50;
     }
 
-    .stats-content {
+    .stats-content-compact {
         color: #fff;
     }
 
-    .session-stats, .lifetime-stats, .session-history {
-        margin-bottom: 25px;
+    .session-stats-compact, .lifetime-stats-compact {
+        margin-bottom: 8px;
     }
 
-    .session-stats h5, .lifetime-stats h5, .session-history h5 {
-        color: #4CAF50;
-        margin-bottom: 15px;
-        font-size: 1.1rem;
-        font-weight: 600;
+    .session-row, .lifetime-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
     }
 
-    .session-stats h5 i, .lifetime-stats h5 i, .session-history h5 i {
-        margin-right: 8px;
-    }
-
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-        margin-bottom: 20px;
-    }
-
-    .stat-item {
+    .stat-compact {
+        display: flex;
+        align-items: center;
+        gap: 4px;
         background: rgba(255, 255, 255, 0.05);
-        border-radius: 8px;
-        padding: 15px;
+        border-radius: 4px;
+        padding: 4px 8px;
         border: 1px solid rgba(255, 255, 255, 0.1);
-        transition: all 0.3s ease;
     }
 
-    .stat-item:hover {
-        background: rgba(255, 255, 255, 0.08);
-        transform: translateY(-2px);
-    }
-
-    .stat-label {
-        font-size: 0.85rem;
+    .stat-label-compact {
+        font-size: 0.75rem;
         color: #b0b0b0;
-        margin-bottom: 5px;
         font-weight: 500;
     }
 
-    .stat-value {
-        font-size: 1.2rem;
+    .stat-value-compact {
+        font-size: 0.85rem;
         font-weight: 600;
         color: #fff;
     }
 
-    .stat-value.rtp-good {
+    .stat-value-compact.rtp-good {
         color: #4CAF50;
     }
 
-    .stat-value.rtp-average {
+    .stat-value-compact.rtp-average {
         color: #FFC107;
     }
 
-    .stat-value.rtp-poor {
+    .stat-value-compact.rtp-poor {
         color: #F44336;
     }
 
-    .stat-value.balance-positive {
+    .stat-value-compact.balance-positive {
         color: #4CAF50;
     }
 
-    .stat-value.balance-negative {
+    .stat-value-compact.balance-negative {
         color: #F44336;
     }
 
-    .session-list {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    .session-item {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 8px;
-        padding: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .session-info {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-    }
-
-    .session-date {
-        font-weight: 600;
-        color: #fff;
-    }
-
-    .session-duration {
-        font-size: 0.85rem;
-        color: #b0b0b0;
-    }
-
-    .session-stats {
-        display: flex;
-        gap: 15px;
-        align-items: center;
-    }
-
-    .session-stats span {
-        font-size: 0.9rem;
-        padding: 4px 8px;
-        border-radius: 4px;
-        background: rgba(255, 255, 255, 0.1);
-    }
-
-    .session-spins {
-        color: #2196F3;
-    }
-
-    .session-bet {
-        color: #FF9800;
-    }
-
-    .session-win {
-        color: #4CAF50;
-    }
-
-    .session-rtp {
-        font-weight: 600;
-    }
-
-    .no-stats {
+    .no-stats-compact {
         text-align: center;
         color: #b0b0b0;
-        padding: 40px;
+        padding: 20px;
+        font-size: 0.9rem;
     }
 
-    .no-stats i {
-        font-size: 2rem;
-        margin-bottom: 15px;
+    .no-stats-compact i {
+        margin-right: 6px;
         color: #666;
     }
 
-    .no-stats p {
-        margin: 0;
-        font-size: 1.1rem;
-    }
-
     @@media (max-width: 768px) {
-        .stats-grid {
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-        }
-
-        .stat-item {
-            padding: 12px;
-        }
-
-        .session-item {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 10px;
-        }
-
-        .session-stats {
-            flex-wrap: wrap;
+        .session-row, .lifetime-row {
             gap: 8px;
+        }
+
+        .stat-compact {
+            padding: 3px 6px;
+        }
+
+        .stat-label-compact {
+            font-size: 0.7rem;
+        }
+
+        .stat-value-compact {
+            font-size: 0.8rem;
         }
     }
 </style>
@@ -395,14 +244,10 @@
     private List<global::Shared.Models.PlayerSessionResponse> sessionHistory = new();
     private bool isLoading = true;
     private bool ShowDetailed = false;
-    private Timer? refreshTimer;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadStats();
-        
-        // Set up auto-refresh every 30 seconds
-        refreshTimer = new Timer(async _ => await InvokeAsync(RefreshStats), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     private async Task LoadStats()
@@ -415,15 +260,13 @@
             // Load current session and player stats in parallel
             var sessionTask = PlayerSessionService.GetCurrentSessionAsync();
             var statsTask = PlayerSessionService.GetPlayerStatsAsync();
-            var historyTask = PlayerSessionService.GetPlayerSessionsAsync(1, 10);
 
-            await Task.WhenAll(sessionTask, statsTask, historyTask);
+            await Task.WhenAll(sessionTask, statsTask);
 
             currentSession = await sessionTask;
             playerStats = await statsTask;
-            sessionHistory = await historyTask;
 
-            await JS.InvokeVoidAsync("console.log", "Player stats loaded:", new { currentSession, playerStats, sessionHistory });
+            await JS.InvokeVoidAsync("console.log", "Player stats loaded:", new { currentSession, playerStats });
         }
         catch (Exception ex)
         {
@@ -436,28 +279,20 @@
         }
     }
 
-    private async Task RefreshStats()
+    // Method to update stats from spin response (called by parent component)
+    public void UpdateFromSpinResponse(global::Shared.Models.PlayerSessionResponse? sessionData)
     {
-        await LoadStats();
+        if (sessionData != null)
+        {
+            currentSession = sessionData;
+            StateHasChanged();
+        }
     }
 
     private void ToggleView()
     {
         ShowDetailed = !ShowDetailed;
         StateHasChanged();
-    }
-
-    private string FormatDuration(TimeSpan? duration)
-    {
-        if (duration == null) return "N/A";
-        
-        var ts = duration.Value;
-        if (ts.TotalHours >= 1)
-            return $"{ts.Hours}h {ts.Minutes}m";
-        else if (ts.TotalMinutes >= 1)
-            return $"{ts.Minutes}m {ts.Seconds}s";
-        else
-            return $"{ts.Seconds}s";
     }
 
     private string GetRtpClass(double rtp)
@@ -474,6 +309,6 @@
 
     public void Dispose()
     {
-        refreshTimer?.Dispose();
+        // No timer to dispose since we removed auto-refresh
     }
 }

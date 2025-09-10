@@ -76,12 +76,12 @@ namespace BloodSuckersSlot.Api.Controllers
 
         // FIXED: Remove hardcoded symbol configs - use GameConfig.Symbols like original SlotEngine
 
-        public static (SpinResult Result, string[][] Grid, ReelSet ChosenSet, List<WinningLine> WinningLines) SpinWithReelSets(GameConfig config, int betAmount, List<ReelSet> reelSetsFromDb)
+        public static (SpinResult Result, string[][] Grid, ReelSet ChosenSet, List<WinningLine> WinningLines) SpinWithReelSets(GameConfig config, int betAmount, List<ReelSet> reelSetsFromDb, double currentRtp = 0, double currentHitRate = 0)
         {
             List<ReelSet> healthySets = new();
             bool isFreeSpin = _freeSpinsRemaining > 0;
-            double currentRtpBeforeSpin = GetActualRtp();
-            double currentHitRateBeforeSpin = GetActualHitRate();
+            double currentRtpBeforeSpin = currentRtp; // Use session-based RTP instead of global
+            double currentHitRateBeforeSpin = currentHitRate; // Use session-based Hit Rate instead of global
             double currentVolatility = CalculateCurrentVolatility();
 
             // Update max recent wins from config
@@ -162,27 +162,28 @@ namespace BloodSuckersSlot.Api.Controllers
             var winningLines = new List<WinningLine>();
 
             // OFFICIAL BLOODSUCKERS MALFUNCTION RULE: Check for malfunctions before processing
-            if (SlotEvaluationService.DetectMalfunction(grid, config.Symbols))
-            {
-                Console.WriteLine("MALFUNCTION: All pays and plays are voided!");
-                return (new SpinResult
-                {
-                    TotalWin = 0,
-                    LineWin = 0,
-                    WildWin = 0,
-                    ScatterWin = 0,
-                    BonusWin = 0,
-                    ScatterCount = 0,
-                    BonusLog = "MALFUNCTION: All pays voided",
-                    IsFreeSpin = isFreeSpin,
-                    BonusTriggered = false,
-                    FreeSpinsRemaining = _freeSpinsRemaining,
-                    FreeSpinsAwarded = _freeSpinsAwarded,
-                    TotalFreeSpinsAwarded = _totalFreeSpinsAwarded,
-                    TotalBonusesTriggered = _totalBonusesTriggered,
-                    SpinType = "MALFUNCTION"
-                }, grid, chosenSet, new List<WinningLine>());
-            }
+            // TEMPORARILY DISABLED - malfunction detection is incorrectly preventing winning lines from being processed
+            // if (SlotEvaluationService.DetectMalfunction(grid, config.Symbols))
+            // {
+            //     Console.WriteLine("MALFUNCTION: All pays and plays are voided!");
+            //     return (new SpinResult
+            //     {
+            //         TotalWin = 0,
+            //         LineWin = 0,
+            //         WildWin = 0,
+            //         ScatterWin = 0,
+            //         BonusWin = 0,
+            //         ScatterCount = 0,
+            //         BonusLog = "MALFUNCTION: All pays voided",
+            //         IsFreeSpin = isFreeSpin,
+            //         BonusTriggered = false,
+            //         FreeSpinsRemaining = _freeSpinsRemaining,
+            //         FreeSpinsAwarded = _freeSpinsAwarded,
+            //         TotalFreeSpinsAwarded = _totalFreeSpinsAwarded,
+            //         TotalBonusesTriggered = _totalBonusesTriggered,
+            //         SpinType = "MALFUNCTION"
+            //     }, grid, chosenSet, new List<WinningLine>());
+            // }
 
             // Debug: Show the grid layout
             Console.WriteLine("DEBUG: Grid layout:");

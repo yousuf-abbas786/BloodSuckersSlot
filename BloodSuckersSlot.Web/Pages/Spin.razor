@@ -1,8 +1,8 @@
 @page "/spin"
 @using BloodSuckersSlot.Web.Models
 @using BloodSuckersSlot.Web.Services
-@using BloodSuckersSlot.Web.Components
 @using global::Shared
+@using global::Shared.Models
 @using System.Text.Json
 @inject HttpClient Http
 @inject IJSRuntime JS
@@ -14,13 +14,58 @@
 
 <div class="container-fluid">
     <div class="row">
-        <!-- Player Stats Sidebar -->
-        <div class="col-md-4">
-            <PlayerStats />
+        <!-- Session Stats -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header">
+                    <h5>📊 Session Stats</h5>
+                </div>
+                <div class="card-body">
+                    @if (currentSessionData != null)
+                    {
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">RTP</small><br>
+                                <strong class="@(currentSessionData.TotalRtp >= 0.88 ? "text-success" : "text-danger")">@(currentSessionData.TotalRtp.ToString("P1"))</strong>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Hit Rate</small><br>
+                                <strong class="@(currentSessionData.HitRate >= 0.35 ? "text-success" : "text-danger")">@(currentSessionData.HitRate.ToString("P1"))</strong>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">Spins</small><br>
+                                <strong>@currentSessionData.TotalSpins</strong>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Balance</small><br>
+                                <strong>£@currentSessionData.CurrentBalance.ToString("F2")</strong>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">Total Bet</small><br>
+                                <strong>£@currentSessionData.TotalBet.ToString("F2")</strong>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Total Win</small><br>
+                                <strong>£@currentSessionData.TotalWin.ToString("F2")</strong>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted">No session data</p>
+                    }
+                </div>
+            </div>
         </div>
         
         <!-- Main Spin Area -->
-        <div class="col-md-8">
+        <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
                     <h3>Slot Machine Spin</h3>
@@ -380,7 +425,7 @@
         </div>
 
         <!-- Charts Sidebar -->
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card mb-3">
                 <div class="card-header">
                     <h5>RTP Chart</h5>
@@ -400,21 +445,6 @@
                     <div style="height: 200px;">
                         <canvas id="hitRateChartSmall" width="300" height="200"></canvas>
                     </div>
-                </div>
-            </div>
-
-            <!-- Current Stats -->
-            <div class="card mt-3">
-                <div class="card-header">
-                    <h5>Current Stats</h5>
-                </div>
-                <div class="card-body">
-                    @{
-                        var rtpTarget = Configuration.GetValue<double>("RtpTarget", 0.88);
-                    }
-                    <p><strong>Current RTP:</strong> <span class="@(currentRtp >= rtpTarget ? "text-success" : "text-danger")">@(currentRtp.ToString("P2"))</span></p>
-                    <p><strong>Current Hit Rate:</strong> <span class="@(currentHitRate >= 0.35 ? "text-success" : "text-danger")">@(currentHitRate.ToString("P2"))</span></p>
-                    <p><strong>Total Spins:</strong> @totalSpins</p>
                 </div>
             </div>
 
@@ -725,6 +755,9 @@
     private double currentHitRate = 0.0;
     private int totalSpins = 0;
 
+    // Session data from spin API
+    private PlayerSessionResponse? currentSessionData;
+
     // Betting System Variables
     private int baseBetPerLevel = 25;
     private int level = 1;
@@ -799,6 +832,9 @@
             
             // Load betting system configuration
             LoadBettingConfiguration();
+            
+            // Start player session if needed
+            await StartPlayerSessionIfNeeded();
             
             // Trigger reel set reload on page load (this will handle progress polling internally)
             await TriggerReelSetReload();
@@ -1089,7 +1125,9 @@
             var response = await Http.PostAsJsonAsync(apiUrl, new { 
                 BetAmount = betInCoins, // Legacy support
                 Level = level,
-                CoinValue = coinValue
+                CoinValue = coinValue,
+                CurrentRtp = currentSessionData?.TotalRtp ?? 0.0,
+                CurrentHitRate = currentSessionData?.HitRate ?? 0.0
             });
             
             if (response.IsSuccessStatusCode)
@@ -1208,18 +1246,44 @@
                 
                 ProcessWinningLinesFromApi(apiWinningLines);
                 
-                // Update player session statistics
-                await UpdatePlayerSessionStats(totalBet, monetaryPayout, lastSpinResult, apiWinningLines.Count > 0);
-                
                 StateHasChanged();
 
-                // Parse stats
-                currentRtp = root.GetProperty("rtp").GetDouble();
-                currentHitRate = root.GetProperty("hitRate").GetDouble();
+                // Parse stats - Use session data instead of individual spin data
                 totalSpins++;
 
-                // Update charts
-                await UpdateChartsWithNewData();
+                // Parse current session data
+                if (root.TryGetProperty("currentSession", out var currentSessionProp) && currentSessionProp.ValueKind != JsonValueKind.Null)
+                {
+                    try
+                    {
+                        var sessionJson = currentSessionProp.GetRawText();
+                        await JS.InvokeVoidAsync("console.log", "🔍 Raw session JSON:", sessionJson);
+                        
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true,
+                            PropertyNamingPolicy = null // Use exact property names
+                        };
+                        currentSessionData = JsonSerializer.Deserialize<PlayerSessionResponse>(sessionJson, options);
+                        
+                        await JS.InvokeVoidAsync("console.log", "✅ Session data received:", currentSessionData);
+                        await JS.InvokeVoidAsync("console.log", "Session RTP:", currentSessionData?.TotalRtp);
+                        await JS.InvokeVoidAsync("console.log", "Session Hit Rate:", currentSessionData?.HitRate);
+                        await JS.InvokeVoidAsync("console.log", "Session Spins:", currentSessionData?.TotalSpins);
+                    }
+                    catch (Exception ex)
+                    {
+                        await JS.InvokeVoidAsync("console.error", "❌ Error parsing currentSession:", ex.Message);
+                        await JS.InvokeVoidAsync("console.error", "❌ Exception details:", ex.ToString());
+                    }
+                }
+                else
+                {
+                    await JS.InvokeVoidAsync("console.warn", "⚠️ No currentSession data in response");
+                }
+
+                // Update charts with session data
+                await UpdateChartsWithNewData(currentSessionData);
             }
             else
             {
@@ -1343,6 +1407,47 @@
         }
     }
 
+    private async Task StartPlayerSessionIfNeeded()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("console.log", "🔄 Loading current player session...");
+            
+            // Load current session on page initialization
+            var response = await Http.GetAsync("/api/playersession/active");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                await JS.InvokeVoidAsync("console.log", "✅ Session loaded successfully:", json);
+                
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = null
+                };
+                currentSessionData = JsonSerializer.Deserialize<PlayerSessionResponse>(json, options);
+                
+                if (currentSessionData != null)
+                {
+                    await JS.InvokeVoidAsync("console.log", "✅ Session data parsed:", currentSessionData);
+                    await JS.InvokeVoidAsync("console.log", "Session RTP:", currentSessionData.TotalRtp);
+                    await JS.InvokeVoidAsync("console.log", "Session Hit Rate:", currentSessionData.HitRate);
+                    await JS.InvokeVoidAsync("console.log", "Session Spins:", currentSessionData.TotalSpins);
+                }
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("console.log", "ℹ️ No active session found - will be created on first spin");
+                currentSessionData = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Error loading session:", ex.Message);
+            currentSessionData = null;
+        }
+    }
+
     private async Task TriggerReelSetReload()
     {
         try
@@ -1394,7 +1499,7 @@
         
         await PerformSpinInternal();
         
-        await JS.InvokeVoidAsync("console.log", $"✅ Manual spin completed - TotalWin: {lastSpinResult?.TotalWin}, RTP: {currentRtp}, HitRate: {currentHitRate}");
+        await JS.InvokeVoidAsync("console.log", $"✅ Manual spin completed - TotalWin: {lastSpinResult?.TotalWin}, Session RTP: {currentSessionData?.TotalRtp:P2}, Session Hit Rate: {currentSessionData?.HitRate:P2}");
     }
 
     private string GetSymbolClass(string symbol)
@@ -1557,7 +1662,7 @@
         }
     }
 
-    private async Task UpdateChartsWithNewData()
+    private async Task UpdateChartsWithNewData(PlayerSessionResponse? sessionData = null)
     {
         if (!chartsInitialized) return;
 
@@ -1565,12 +1670,16 @@
         var rtpTarget = Configuration.GetValue<double>("RtpTarget", 0.88);
         var hitRateTarget = Configuration.GetValue<double>("TargetHitRate", 0.35);
 
+        // Use session data if available, otherwise fallback to global variables
+        double sessionRtp = sessionData?.TotalRtp ?? currentRtp;
+        double sessionHitRate = sessionData?.HitRate ?? currentHitRate;
+
         // Add new data points
         rtpLabels.Add($"Spin {totalSpins}");
         hitRateLabels.Add($"Spin {totalSpins}");
-        rtpData.Add(currentRtp);
+        rtpData.Add(sessionRtp);
         rtpTargetData.Add(rtpTarget); // Target RTP from configuration
-        hitRateData.Add(currentHitRate);
+        hitRateData.Add(sessionHitRate);
         hitRateTargetData.Add(hitRateTarget); // Target Hit Rate from configuration
 
         // Update RTP Chart
@@ -1643,36 +1752,6 @@
         return "sym0.png";
     }
 
-    /// <summary>
-    /// Update player session statistics after a spin
-    /// </summary>
-    private async Task UpdatePlayerSessionStats(decimal totalBet, decimal monetaryPayout, SpinResult spinResult, bool isWinningSpin)
-    {
-        try
-        {
-            var success = await PlayerSessionService.UpdateSessionStatsAsync(
-                totalBet, 
-                monetaryPayout, 
-                isWinningSpin, 
-                spinResult.IsFreeSpin, 
-                spinResult.BonusTriggered, 
-                spinResult.FreeSpinsAwarded
-            );
-
-            if (success)
-            {
-                await JS.InvokeVoidAsync("console.log", $"Updated player session stats: Bet={totalBet:C}, Win={monetaryPayout:C}, Winning={isWinningSpin}");
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("console.warn", "Failed to update player session stats");
-            }
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("console.error", "Error updating player session stats:", ex.Message);
-        }
-    }
 
     public void Dispose()
     {
