@@ -65,7 +65,10 @@ namespace Shared.Models
         public decimal CurrentBalance { get; set; } = 0;
         
         [BsonElement("sessionDuration")]
-        public TimeSpan? SessionDuration => SessionEnd?.Subtract(SessionStart);
+        public TimeSpan? SessionDuration { get; set; }
+        
+        [BsonIgnore]
+        public TimeSpan? CalculatedSessionDuration => SessionEnd?.Subtract(SessionStart);
         
         [BsonElement("createdAt")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

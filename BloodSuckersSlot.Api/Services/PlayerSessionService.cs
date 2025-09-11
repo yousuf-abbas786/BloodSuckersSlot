@@ -135,10 +135,21 @@ namespace BloodSuckersSlot.Api.Services
         {
             try
             {
+                // First get the session to calculate duration
+                var session = await _sessionCollection.Find(s => s.Id == sessionId && s.IsActive).FirstOrDefaultAsync();
+                if (session == null)
+                {
+                    return false;
+                }
+
+                var sessionEndTime = DateTime.UtcNow;
+                var sessionDuration = sessionEndTime - session.SessionStart;
+                
                 var update = Builders<PlayerSession>.Update
-                    .Set(s => s.SessionEnd, DateTime.UtcNow)
+                    .Set(s => s.SessionEnd, sessionEndTime)
+                    .Set(s => s.SessionDuration, sessionDuration)
                     .Set(s => s.IsActive, false)
-                    .Set(s => s.UpdatedAt, DateTime.UtcNow);
+                    .Set(s => s.UpdatedAt, sessionEndTime);
 
                 var result = await _sessionCollection.UpdateOneAsync(
                     s => s.Id == sessionId && s.IsActive,
@@ -147,13 +158,14 @@ namespace BloodSuckersSlot.Api.Services
                 if (result.ModifiedCount > 0)
                 {
                     // Update player stats with final session data
-                    var session = await _sessionCollection.Find(s => s.Id == sessionId).FirstOrDefaultAsync();
-                    if (session != null)
+                    var updatedSession = await _sessionCollection.Find(s => s.Id == sessionId).FirstOrDefaultAsync();
+                    if (updatedSession != null)
                     {
-                        await UpdatePlayerStatsFromSessionAsync(session);
+                        await UpdatePlayerStatsFromSessionAsync(updatedSession);
                     }
 
-                    _logger.LogInformation("Ended session {SessionId}", sessionId);
+                    _logger.LogInformation("Ended session {SessionId} - Duration: {Duration} minutes", 
+                        sessionId, sessionDuration.TotalMinutes);
                     return true;
                 }
 
@@ -429,6 +441,7 @@ namespace BloodSuckersSlot.Api.Services
                         CurrentBalance = session.CurrentBalance,
                         MaxWinEver = session.MaxWin,
                         LastSessionDate = DateTime.UtcNow,
+                        LastLoginDate = session.SessionStart, // Set last login date to session start time
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
                     };
@@ -451,6 +464,7 @@ namespace BloodSuckersSlot.Api.Services
                 stats.TotalBonusesTriggered += session.BonusesTriggered;
                 stats.CurrentBalance = session.CurrentBalance;
                 stats.LastSessionDate = DateTime.UtcNow;
+                stats.LastLoginDate = session.SessionStart; // Set last login date to session start time
                 stats.UpdatedAt = DateTime.UtcNow;
 
                 if (session.MaxWin > stats.MaxWinEver)
@@ -475,6 +489,7 @@ namespace BloodSuckersSlot.Api.Services
                     .Set(s => s.MaxWinEver, stats.MaxWinEver)
                     .Set(s => s.CurrentBalance, stats.CurrentBalance)
                     .Set(s => s.LastSessionDate, stats.LastSessionDate)
+                    .Set(s => s.LastLoginDate, stats.LastLoginDate)
                     .Set(s => s.UpdatedAt, stats.UpdatedAt);
 
                 await _statsCollection.UpdateOneAsync(s => s.PlayerId == session.PlayerId, update);
