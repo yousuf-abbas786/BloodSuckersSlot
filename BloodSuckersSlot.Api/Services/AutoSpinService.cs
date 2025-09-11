@@ -4,10 +4,13 @@ using System.Collections.Concurrent;
 using MongoDB.Driver;
 using MongoDB.Bson;
 using Shared;
+using Shared.Models;
 using System.Text.Json;
 using System.Diagnostics;
 using BloodSuckersSlot.Api.Models;
 using BloodSuckersSlot.Api.Controllers;
+using BloodSuckersSlot.Api.Services;
+using Microsoft.AspNetCore.SignalR;
 
 namespace BloodSuckersSlot.Api.Services
 {
@@ -19,15 +22,18 @@ namespace BloodSuckersSlot.Api.Services
         private readonly PerformanceSettings _performanceSettings;
         private readonly IReelSetCacheService _reelSetCacheService;
         private readonly GameConfig _config;
+        private readonly IHubContext<RtpHub> _hubContext;
 
         public AutoSpinService(ILogger<AutoSpinService> logger, IServiceProvider serviceProvider,
-            PerformanceSettings performanceSettings, IReelSetCacheService reelSetCacheService, IConfiguration configuration)
+            PerformanceSettings performanceSettings, IReelSetCacheService reelSetCacheService, 
+            IConfiguration configuration, IHubContext<RtpHub> hubContext)
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
             _performanceSettings = performanceSettings;
             _reelSetCacheService = reelSetCacheService;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
+            _hubContext = hubContext;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -168,6 +174,7 @@ namespace BloodSuckersSlot.Api.Services
                 // Get or create player-specific spin session for auto-spin
                 using var scope = _serviceProvider.CreateScope();
                 var playerSpinSessionService = scope.ServiceProvider.GetRequiredService<IPlayerSpinSessionService>();
+                var playerSessionService = scope.ServiceProvider.GetRequiredService<IPlayerSessionService>();
                 var playerSpinSession = playerSpinSessionService.GetOrCreatePlayerSession(session.PlayerId);
                 
                 // Use the same spin logic as SpinController
@@ -181,6 +188,70 @@ namespace BloodSuckersSlot.Api.Services
 
                 // Calculate monetary payout
                 var monetaryPayout = BettingSystem.CalculatePayout((int)result.TotalWin, request.CoinValue);
+
+                // CRITICAL: Update the main player session in database (fire-and-forget for performance)
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var currentSession = await playerSessionService.GetActiveSessionAsync(session.PlayerId);
+                        if (currentSession != null)
+                        {
+                            // Update session stats
+                            var updateRequest = new UpdateSessionStatsRequest
+                            {
+                                SessionId = currentSession.SessionId,
+                                PlayerId = session.PlayerId,
+                                BetAmount = totalBet,
+                                WinAmount = monetaryPayout,
+                                IsWinningSpin = result.TotalWin > 0,
+                                IsFreeSpin = result.IsFreeSpin,
+                                IsBonusTriggered = result.BonusTriggered,
+                                FreeSpinsAwarded = result.FreeSpinsAwarded,
+                                CurrentBalance = currentSession.CurrentBalance
+                            };
+
+                            await playerSessionService.UpdateSessionStatsAsync(updateRequest);
+                            _logger.LogDebug("✅ Auto-spin session updated in database for player {PlayerId}", session.PlayerId);
+
+                            // Send real-time update via SignalR
+                            try
+                            {
+                                var updatedSession = await playerSessionService.GetActiveSessionAsync(session.PlayerId);
+                                if (updatedSession != null)
+                                {
+                                    var rtpUpdate = new RtpUpdate
+                                    {
+                                        SpinNumber = updatedSession.TotalSpins,
+                                        ActualRtp = updatedSession.TotalRtp,
+                                        TargetRtp = _config.RtpTarget,
+                                        ActualHitRate = updatedSession.HitRate,
+                                        TargetHitRate = _config.TargetHitRate,
+                                        Timestamp = DateTime.UtcNow,
+                                        SpinTimeSeconds = 0.1, // Auto-spin is fast
+                                        AverageSpinTimeSeconds = 0.1,
+                                        TotalSpins = updatedSession.TotalSpins,
+                                        ChosenReelSetName = chosenSet.Name,
+                                        ChosenReelSetExpectedRtp = chosenSet.ExpectedRtp,
+                                        TotalFreeSpinsAwarded = result.FreeSpinsAwarded,
+                                        TotalBonusesTriggered = result.BonusTriggered ? 1 : 0
+                                    };
+
+                                    await _hubContext.Clients.All.SendAsync("ReceiveRtpUpdate", rtpUpdate);
+                                    _logger.LogDebug("📡 Auto-spin RTP update sent via SignalR for player {PlayerId}", session.PlayerId);
+                                }
+                            }
+                            catch (Exception signalREx)
+                            {
+                                _logger.LogWarning(signalREx, "⚠️ Failed to send SignalR update for auto-spin player {PlayerId}", session.PlayerId);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ Failed to update auto-spin session for player {PlayerId}", session.PlayerId);
+                    }
+                });
 
                 return new Dictionary<string, object>
                 {
