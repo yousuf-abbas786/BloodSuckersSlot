@@ -851,9 +851,9 @@ namespace BloodSuckersSlot.Api.Controllers
                     return BadRequest(new { error = "Spin count must be between 1 and 1000" });
                 }
 
-                if (request.SpinDelayMs < 100 || request.SpinDelayMs > 10000)
+                if (request.SpinDelayMs < 0 || request.SpinDelayMs > 10000)
                 {
-                    return BadRequest(new { error = "Spin delay must be between 100ms and 10 seconds" });
+                    return BadRequest(new { error = "Spin delay must be between 0ms (instant) and 10 seconds" });
                 }
 
                 // Validate bet parameters

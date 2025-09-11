@@ -201,32 +201,24 @@
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label for="autoSpinCount">Number of Spins: @autoSpinCount</label>
-                                    <input type="range" id="autoSpinCount" class="form-range"
-                                           min="1" max="1000" step="1"
-                                           value="@autoSpinCount" @onchange="OnAutoSpinCountChanged" />
-                                    <div class="d-flex justify-content-between">
-                                        <small>1</small>
-                                        <small>1000</small>
-                                    </div>
+                                            <label for="autoSpinCount">Number of Spins:</label>
+                                            <input type="number" id="autoSpinCount" class="form-control"
+                                                   min="1" max="1000" step="1"
+                                                   value="@autoSpinCount" @onchange="OnAutoSpinCountChanged" />
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label for="autoSpinDelay">Delay Between Spins: @autoSpinDelayMs ms</label>
-                                            <input type="range" id="autoSpinDelay" class="form-range" 
-                                                   min="500" max="5000" step="100" 
-                                                   value="@autoSpinDelayMs" @onchange="OnAutoSpinDelayChanged" />
-                                            <div class="d-flex justify-content-between">
-                                                <small>500ms</small>
-                                                <small>5s</small>
+                                            <label>Instant Auto-Spin (No Delay)</label>
+                                            <div class="alert alert-info">
+                                                <small>Auto-spins will execute immediately without delay for maximum speed.</small>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="text-center mt-3">
                                     <small class="text-muted">
-                                        Total Auto-Spin Duration: @(TimeSpan.FromMilliseconds(autoSpinCount * autoSpinDelayMs).TotalSeconds.ToString("F1")) seconds
+                                        Total Auto-Spin Duration: Instant (No Delay)
                                     </small>
                                 </div>
                             </div>
@@ -773,7 +765,7 @@
     private bool isAutoSpinning = false;
     private string? currentAutoSpinId = null;
     private int autoSpinCount = 10;
-    private int autoSpinDelayMs = 1000;
+    private int autoSpinDelayMs = 0; // No delay for instant spins
     private int autoSpinRemaining = 0;
     private decimal autoSpinTotalWins = 0.00m;
     private decimal autoSpinTotalBets = 0.00m;
@@ -899,11 +891,9 @@
 
     private void OnAutoSpinDelayChanged(ChangeEventArgs e)
     {
-        if (int.TryParse(e.Value?.ToString(), out int newValue))
-        {
-            autoSpinDelayMs = Math.Max(500, Math.Min(5000, newValue));
-            StateHasChanged();
-        }
+        // Delay is disabled - keep at 0 for instant spins
+        autoSpinDelayMs = 0;
+        StateHasChanged();
     }
 
     private async Task StartAutoSpin()
@@ -924,7 +914,7 @@
                 CoinValue = coinValue
             };
 
-            await JS.InvokeVoidAsync("console.log", $"🎰 Starting auto-spin: {autoSpinCount} spins, {autoSpinDelayMs}ms delay");
+            await JS.InvokeVoidAsync("console.log", $"🎰 Starting instant auto-spin: {autoSpinCount} spins (no delay)");
             
             var response = await Http.PostAsJsonAsync(apiUrl, request);
             
@@ -1053,10 +1043,7 @@
                 await InvokeAsync(StateHasChanged);
                 
                 // Wait for the specified delay (except for the last spin)
-                if (i < autoSpinCount - 1)
-                {
-                    await Task.Delay(autoSpinDelayMs);
-                }
+                // No delay - instant spins for maximum speed
             }
             
             if (isAutoSpinning)
