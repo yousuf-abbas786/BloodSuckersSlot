@@ -26,11 +26,15 @@ namespace BloodSuckersSlot.Api.Services
                 {
                     using var scope = _serviceProvider.CreateScope();
                     var playerSessionService = scope.ServiceProvider.GetRequiredService<IPlayerSessionService>();
+                    var playerSpinSessionService = scope.ServiceProvider.GetRequiredService<IPlayerSpinSessionService>();
 
                     // Clean up inactive sessions
                     await playerSessionService.CleanupInactiveSessionsAsync(_inactivityThreshold);
                     
-                    _logger.LogDebug("Player session cleanup completed");
+                    // Clean up inactive SpinLogicHelper sessions
+                    playerSpinSessionService.CleanupInactiveSessions(_inactivityThreshold);
+                    var activeSessionCount = playerSpinSessionService.GetActiveSessionCount();
+                    _logger.LogDebug("Player session cleanup completed. Active SpinLogicHelper sessions: {Count}", activeSessionCount);
                 }
                 catch (Exception ex)
                 {

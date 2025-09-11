@@ -17,16 +17,16 @@ namespace BloodSuckersSlot.Api.Services
         private readonly ConcurrentDictionary<string, AutoSpinSession> _activeSessions = new();
         private readonly IServiceProvider _serviceProvider;
         private readonly PerformanceSettings _performanceSettings;
-        private readonly MongoDbSettings _mongoDbSettings;
-        private static GameConfig _config = null!;
+        private readonly IReelSetCacheService _reelSetCacheService;
+        private readonly GameConfig _config;
 
         public AutoSpinService(ILogger<AutoSpinService> logger, IServiceProvider serviceProvider,
-            PerformanceSettings performanceSettings, MongoDbSettings mongoDbSettings, IConfiguration configuration)
+            PerformanceSettings performanceSettings, IReelSetCacheService reelSetCacheService, IConfiguration configuration)
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
             _performanceSettings = performanceSettings;
-            _mongoDbSettings = mongoDbSettings;
+            _reelSetCacheService = reelSetCacheService;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
         }
 
@@ -131,7 +131,7 @@ namespace BloodSuckersSlot.Api.Services
                 };
 
                 // Execute spin logic directly
-                var result = await PerformSpinInternal(spinRequest);
+                var result = await PerformSpinInternal(spinRequest, session);
                 
                 if (result != null)
                 {
@@ -149,7 +149,7 @@ namespace BloodSuckersSlot.Api.Services
             }
         }
 
-        private async Task<Dictionary<string, object>?> PerformSpinInternal(SpinRequestDto request)
+        private async Task<Dictionary<string, object>?> PerformSpinInternal(SpinRequestDto request, AutoSpinSession session)
         {
             try
             {
@@ -157,16 +157,21 @@ namespace BloodSuckersSlot.Api.Services
                 var betInCoins = BettingSystem.CalculateBetInCoins(_config.BaseBetPerLevel, request.Level);
                 var totalBet = BettingSystem.CalculateTotalBet(_config.BaseBetPerLevel, request.Level, request.CoinValue);
 
-                // Get reel sets from database
-                var reelSets = await GetReelSetsFromDatabase();
+                // Get reel sets from cache service (same as SpinController)
+                var reelSets = _reelSetCacheService.GetInstantReelSets();
                 if (reelSets == null || !reelSets.Any())
                 {
                     _logger.LogError("No reel sets available for spin");
                     return null;
                 }
 
+                // Get or create player-specific spin session for auto-spin
+                using var scope = _serviceProvider.CreateScope();
+                var playerSpinSessionService = scope.ServiceProvider.GetRequiredService<IPlayerSpinSessionService>();
+                var playerSpinSession = playerSpinSessionService.GetOrCreatePlayerSession(session.PlayerId);
+                
                 // Use the same spin logic as SpinController
-                var (result, grid, chosenSet, winningLines) = SpinLogicHelper.SpinWithReelSets(_config, betInCoins, reelSets);
+                var (result, grid, chosenSet, winningLines) = playerSpinSession.SpinWithReelSets(_config, betInCoins, reelSets);
 
                 if (result == null || grid == null || chosenSet == null)
                 {
@@ -194,42 +199,6 @@ namespace BloodSuckersSlot.Api.Services
             }
         }
 
-        private async Task<List<ReelSet>?> GetReelSetsFromDatabase()
-        {
-            try
-            {
-                // Get MongoDB collection from service provider
-                var mongoClient = _serviceProvider.GetRequiredService<IMongoClient>();
-                var database = mongoClient.GetDatabase(_mongoDbSettings.Database);
-                var collection = database.GetCollection<BsonDocument>("reelsets");
-                
-                // Get multiple reel sets from database
-                var filter = Builders<BsonDocument>.Filter.Empty;
-                var reelSetDocs = await collection.Find(filter).Limit(100).ToListAsync();
-                
-                if (reelSetDocs != null && reelSetDocs.Any())
-                {
-                    var reelSets = new List<ReelSet>();
-                    foreach (var doc in reelSetDocs)
-                    {
-                        var reelSetJson = doc.ToJson();
-                        var reelSet = JsonSerializer.Deserialize<ReelSet>(reelSetJson);
-                        if (reelSet != null)
-                        {
-                            reelSets.Add(reelSet);
-                        }
-                    }
-                    return reelSets;
-                }
-                
-                return null;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving reel sets");
-                return null;
-            }
-        }
 
         public void StartSession(AutoSpinSession session)
         {

@@ -1,6 +1,7 @@
 using BloodSuckersSlot.Api;
 using BloodSuckersSlot.Api.Models;
 using BloodSuckersSlot.Api.Services;
+using BloodSuckersSlot.Api.Controllers;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.OpenApi.Models;
 using MongoDB.Driver;
@@ -120,6 +121,14 @@ builder.Services.AddScoped<IGamingEntityService, GamingEntityService>();
 builder.Services.AddScoped<IGamingEntityAuthService, GamingEntityAuthService>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IPlayerSessionService, PlayerSessionService>();
+builder.Services.AddSingleton<IPlayerSpinSessionService, PlayerSpinSessionService>();
+builder.Services.AddScoped<SpinLogicHelper>();
+
+// 🚀 CRITICAL FIX: Register ReelSetCacheService as Singleton for performance
+builder.Services.AddSingleton<IReelSetCacheService, ReelSetCacheService>();
+
+// 🚀 CRITICAL FIX: Register SpinController as Scoped but optimize constructor
+builder.Services.AddScoped<SpinController>();
 
 // Register AutoSpinService as both a service and a background service
 builder.Services.AddSingleton<AutoSpinService>();

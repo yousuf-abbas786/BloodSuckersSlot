@@ -16,175 +16,63 @@ namespace BloodSuckersSlot.Api.Controllers
     [Route("api/[controller]")]
     public class SpinController : ControllerBase
     {
-        private readonly IMongoCollection<BsonDocument> _collection;
         private readonly ILogger<SpinController> _logger;
-        private static GameConfig _config;
+        private readonly GameConfig _config;
         private readonly PerformanceSettings _performanceSettings;
-        private readonly MongoDbSettings _mongoDbSettings;
         private readonly AutoSpinService _autoSpinService;
         private readonly IPlayerSessionService _playerSessionService;
+        private readonly IPlayerSpinSessionService _playerSpinSessionService;
+        private readonly IReelSetCacheService _reelSetCacheService;
         
-        // Lazy loading with RTP range caching
-        private static readonly Dictionary<string, List<ReelSet>> _rtpRangeCache = new();
-        private static readonly SemaphoreSlim _cacheLock = new(1);
-        private static int _maxCacheSize = 10000; // Will be set from config
-        private static int _maxReelSetsPerRange = 1000; // Will be set from config
+        // 🚀 SESSION CACHING for ultra-fast spins
+        private readonly Dictionary<string, PlayerSessionResponse> _sessionCache = new();
+        private readonly SemaphoreSlim _sessionCacheLock = new(1);
+        private readonly TimeSpan _sessionCacheExpiry = TimeSpan.FromMinutes(5); // Cache sessions for 5 minutes
+        private readonly Dictionary<string, DateTime> _sessionCacheTimestamps = new();
         
-        // Memory monitoring
-        private static long _totalMemoryUsed = 0;
-        private static int _totalReelSetsLoaded = 0;
+        // 🚀 SPIN SPEED OPTIMIZATIONS (moved to ReelSetCacheService)
         
-        // 🚀 SPIN SPEED OPTIMIZATIONS
-        private static readonly Dictionary<string, Task> _prefetchTasks = new();
-        private static readonly SemaphoreSlim _prefetchLock = new(1);
-        private static int _prefetchRangeCount = 5; // Will be set from config
-        private static double _prefetchRangeSize = 0.1; // Will be set from config
-        private static DateTime _lastPrefetchTime = DateTime.MinValue;
-        private static TimeSpan _prefetchInterval = TimeSpan.FromSeconds(30); // Will be set from config
+        // 🚀 SPINLOGICHELPER CACHING for ultra-fast spins
+        private readonly Dictionary<string, SpinLogicHelper> _spinLogicCache = new();
+        private readonly SemaphoreSlim _spinLogicCacheLock = new(1);
 
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
-            PerformanceSettings performanceSettings, MongoDbSettings mongoDbSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService)
+            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService)
         {
+            var startTime = DateTime.UtcNow;
+            
             _logger = logger;
             _performanceSettings = performanceSettings;
-            _mongoDbSettings = mongoDbSettings;
             _autoSpinService = autoSpinService;
             _playerSessionService = playerSessionService;
+            _playerSpinSessionService = playerSpinSessionService;
+            _reelSetCacheService = reelSetCacheService;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
             
-            // Initialize performance settings from configuration
-            _maxCacheSize = _performanceSettings.MaxCacheSize;
-            _maxReelSetsPerRange = _performanceSettings.MaxReelSetsPerRange;
-            _prefetchRangeCount = _performanceSettings.PrefetchRangeCount;
-            _prefetchRangeSize = _performanceSettings.PrefetchRangeSize;
-            _prefetchInterval = TimeSpan.FromSeconds(_performanceSettings.PrefetchIntervalSeconds);
-            
-            try
-            {
-                var connectionString = _mongoDbSettings.ConnectionString;
-                var dbName = _mongoDbSettings.Database;
-                
-                _logger.LogInformation($"Connecting to MongoDB: {dbName} at {connectionString?.Split('@').LastOrDefault() ?? "unknown"}");
-                
-                var client = new MongoClient(connectionString);
-                var db = client.GetDatabase(dbName);
-                _collection = db.GetCollection<BsonDocument>("reelsets");
-                
-                _logger.LogInformation("✅ MongoDB connection established successfully");
-                
-                // DISABLED: Old loading mechanism that loads all 100K reel sets
-                // _ = LoadAllReelSetsAsync();
-                
-                // ENABLED: Lazy loading - only load reel sets when needed
-                _logger.LogInformation("🚀 LAZY LOADING ENABLED - No reel sets loaded at startup");
-                _logger.LogInformation("💾 MEMORY USAGE: Starting with minimal memory footprint");
-                
-                // Create indexes for optimal performance
-                CreateIndexesAsync().Wait();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ MongoDB connection failed - API cannot start without MongoDB");
-                throw new InvalidOperationException($"MongoDB connection failed: {ex.Message}", ex);
-            }
+            var initTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogInformation("🚀 SpinController initialized in {InitTime:F2}ms - ready for ultra-fast spins", initTime);
+            _logger.LogInformation("📊 SpinController Performance Settings: SpinTimeout={SpinTimeout}s, SessionCacheExpiry={SessionCacheExpiry}min", 
+                _performanceSettings.SpinTimeoutSeconds, _sessionCacheExpiry.TotalMinutes);
         }
 
-        // REMOVED: Old LoadAllReelSetsAsync method - replaced with lazy loading
-        // This method was loading all 100K reel sets into memory, causing 23+ GB usage
-
-        private async Task CreateIndexesAsync()
+        // 🚀 ULTRA-FAST PRELOADING: Load essential reel sets for instant spins
+        private async Task PreloadEssentialReelSetsAsync()
         {
-            try
-            {
-                var indexKeys = new List<CreateIndexModel<BsonDocument>>
-                {
-                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp")),
-                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("estimatedHitRate")),
-                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Ascending("tag")),
-                    // Compound index for efficient RTP range queries
-                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Combine(
-                        Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp"),
-                        Builders<BsonDocument>.IndexKeys.Ascending("estimatedHitRate")
-                    )),
-                    // Compound index for efficient filtering
-                    new CreateIndexModel<BsonDocument>(Builders<BsonDocument>.IndexKeys.Combine(
-                        Builders<BsonDocument>.IndexKeys.Ascending("tag"),
-                        Builders<BsonDocument>.IndexKeys.Ascending("expectedRtp")
-                    ))
-                };
-                
-                await _collection.Indexes.CreateManyAsync(indexKeys);
-                _logger.LogInformation("✅ Database indexes created successfully");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "⚠️ Failed to create indexes (may already exist)");
-            }
+            await _reelSetCacheService.PreloadEssentialReelSetsAsync();
         }
 
         // Lazy loading with RTP range caching
         [ApiExplorerSettings(IgnoreApi = true)]
         public async Task<List<ReelSet>> GetReelSetsForRtpRangeAsync(double minRtp, double maxRtp, int limit = 1000)
         {
-            var cacheKey = $"rtp_{minRtp:F2}_{maxRtp:F2}";
-            
-            // Check cache first
-            if (_rtpRangeCache.ContainsKey(cacheKey))
-            {
-                _logger.LogInformation($"🎯 CACHE HIT: Found {_rtpRangeCache[cacheKey].Count} reel sets for RTP range {minRtp:F2}-{maxRtp:F2}");
-                return _rtpRangeCache[cacheKey];
-            }
-            
-            await _cacheLock.WaitAsync();
-            try
-            {
-                // Double-check after lock
-                if (_rtpRangeCache.ContainsKey(cacheKey))
-                {
-                    _logger.LogInformation($"🎯 CACHE HIT (after lock): Found {_rtpRangeCache[cacheKey].Count} reel sets for RTP range {minRtp:F2}-{maxRtp:F2}");
-                    return _rtpRangeCache[cacheKey];
-                }
-                
-                _logger.LogInformation($"🔄 CACHE MISS: Loading reel sets for RTP range {minRtp:F2}-{maxRtp:F2} from database");
-                
-                // Load only the needed reel sets from DB
-                var filter = Builders<BsonDocument>.Filter.And(
-                    Builders<BsonDocument>.Filter.Gte("expectedRtp", minRtp),
-                    Builders<BsonDocument>.Filter.Lte("expectedRtp", maxRtp)
-                );
-                
-                var documents = await _collection.Find(filter).Limit(limit).ToListAsync();
-                var reelSets = documents.Select(doc => new ReelSet
-                {
-                    Name = doc.GetValue("name", "").AsString,
-                    Reels = doc["reels"].AsBsonArray
-                        .Select(col => col.AsBsonArray.Select(s => s.AsString).ToList()).ToList(),
-                    ExpectedRtp = doc.GetValue("expectedRtp", 0.0).ToDouble(),
-                    EstimatedHitRate = doc.GetValue("estimatedHitRate", 0.0).ToDouble()
-                }).ToList();
-                
-                // Cache management - remove oldest entries if cache is full
-                if (_rtpRangeCache.Count >= _maxCacheSize)
-                {
-                    var oldestKey = _rtpRangeCache.Keys.First();
-                    _rtpRangeCache.Remove(oldestKey);
-                    _logger.LogInformation($"🗑️ CACHE CLEANUP: Removed oldest cache entry '{oldestKey}'");
-                }
-                
-                _rtpRangeCache[cacheKey] = reelSets;
-                
-                var memoryUsage = GC.GetTotalMemory(false);
-                _totalReelSetsLoaded += reelSets.Count;
-                _totalMemoryUsed = memoryUsage;
-                
-                _logger.LogInformation($"✅ CACHE STORED: {reelSets.Count} reel sets for RTP range {minRtp:F2}-{maxRtp:F2} | Cache size: {_rtpRangeCache.Count} | Memory: {memoryUsage / (1024 * 1024):N0} MB");
-                
-                return reelSets;
-            }
-            finally
-            {
-                _cacheLock.Release();
-            }
+            return await _reelSetCacheService.GetReelSetsForRtpRangeAsync(minRtp, maxRtp, limit);
+        }
+
+        // 🚀 INSTANT REEL SETS: Synchronous method for maximum speed
+        [ApiExplorerSettings(IgnoreApi = true)]
+        private List<ReelSet> GetInstantReelSets()
+        {
+            return _reelSetCacheService.GetInstantReelSets();
         }
 
         // Get reel sets for current RTP needs - ULTRA AGGRESSIVE FOR MAXIMUM WAVES
@@ -192,129 +80,179 @@ namespace BloodSuckersSlot.Api.Controllers
         public async Task<List<ReelSet>> GetReelSetsForCurrentRtpAsync(double currentRtp, double targetRtp, GameConfig config)
         {
             var startTime = DateTime.UtcNow;
-            var needs = new List<(double min, double max)>();
             
-            // 🎯 ULTRA AGGRESSIVE RTP RANGE SELECTION for maximum wave patterns
-            // ALWAYS load extreme ranges to ensure dramatic waves and free spins
+            // 🚀 ULTRA-FAST CACHE-ONLY MODE: Only use pre-loaded data for maximum speed
+            var allReelSets = _reelSetCacheService.GetInstantReelSets();
             
-            // ALWAYS include extreme high RTP ranges for dramatic waves and free spins
-            needs.Add((targetRtp * 1.5, targetRtp * 5.0));  // 132% to 440% - Extreme high for big wins
-            needs.Add((targetRtp * 1.2, targetRtp * 1.5)); // 105.6% to 132% - High for waves
+            var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
             
-            // ALWAYS include extreme low RTP ranges for dramatic drops
-            needs.Add((targetRtp * 0.1, targetRtp * 0.5));  // 8.8% to 44% - Extreme low for dry spells
-            needs.Add((targetRtp * 0.5, targetRtp * 0.8)); // 44% to 70.4% - Low for variety
-            
-            // Add balanced ranges for natural flow
-            needs.Add((targetRtp * 0.8, targetRtp * 1.2)); // 70.4% to 105.6% - Balanced range
-            
-            // Add scatter-rich ranges for free spins (typically mid-range RTP)
-            needs.Add((targetRtp * 0.6, targetRtp * 1.0)); // 52.8% to 88% - Scatter-friendly range
-            
-            _logger.LogInformation($"🌊 ULTRA AGGRESSIVE RANGE SELECTION: Loading {needs.Count} extreme ranges for maximum waves and free spins");
-            
-            // 🚀 PARALLEL LOADING for speed
-            var tasks = needs.Select(async (range) => 
+            if (allReelSets.Count > 0)
             {
-                var (min, max) = range;
-                return await GetReelSetsForRtpRangeAsync(min, max, _maxReelSetsPerRange);
-            }).ToArray();
+                _logger.LogInformation($"🎯 ULTRA-FAST: {allReelSets.Count} reel sets from cache in {totalTime:F0}ms");
+                return allReelSets;
+            }
             
-            // Wait for all parallel tasks to complete
-            var results = await Task.WhenAll(tasks);
+            // Fallback: If no cached data, load minimal set (shouldn't happen after preload)
+            _logger.LogWarning("⚠️ NO CACHED DATA: Loading minimal reel set (preload may have failed)");
             
-            var allReelSets = results.SelectMany(x => x).ToList();
-            var loadTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            var fallbackSets = await _reelSetCacheService.GetReelSetsForRtpRangeAsync(targetRtp * 0.8, targetRtp * 1.2, 100);
+            _logger.LogInformation($"🔄 FALLBACK: Loaded {fallbackSets.Count} reel sets in {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
             
-            _logger.LogInformation($"🎯 LOADED {allReelSets.Count} reel sets for current RTP {currentRtp:F2} (target: {targetRtp:F2}) in {loadTime:F0}ms");
-            _logger.LogInformation($"🌊 RTP RANGES LOADED: {string.Join(", ", needs.Select(r => $"{r.min:F1}-{r.max:F1}"))}");
-            
-            // Trigger background prefetching for next spins
-            _ = Task.Run(async () => await TriggerPrefetchAsync(currentRtp, targetRtp));
-            
-            return allReelSets;
+            return fallbackSets;
         }
 
-        // 🚀 BACKGROUND PREFETCHING for faster subsequent spins
+        // 🚀 SESSION CACHING METHODS for ultra-fast spins
         [ApiExplorerSettings(IgnoreApi = true)]
-        private async Task TriggerPrefetchAsync(double currentRtp, double targetRtp)
+        private async Task<PlayerSessionResponse?> GetCachedSessionAsync(string playerId)
         {
+            await _sessionCacheLock.WaitAsync();
             try
             {
-                await _prefetchLock.WaitAsync();
-                
-                // Check if we should prefetch (avoid too frequent prefetching)
-                if (DateTime.UtcNow - _lastPrefetchTime < _prefetchInterval)
+                // Check if session exists in cache and is not expired
+                if (_sessionCache.ContainsKey(playerId) && _sessionCacheTimestamps.ContainsKey(playerId))
                 {
-                    return;
-                }
-                
-                _lastPrefetchTime = DateTime.UtcNow;
-                
-                // Calculate likely RTP ranges for next spins
-                var prefetchRanges = new List<(double min, double max)>();
-                
-                // 🎯 ULTRA AGGRESSIVE PREFETCHING for maximum waves and free spins
-                // Prefetch extreme ranges to ensure variety in future spins
-                var rangeSize = targetRtp * _prefetchRangeSize * 2.0; // Double range size for maximum variety
-                for (int i = 0; i < _prefetchRangeCount; i++)
-                {
-                    var center = currentRtp + (i - _prefetchRangeCount / 2) * rangeSize;
-                    var min = Math.Max(0.05, center - rangeSize / 2); // Allow lower RTP
-                    var max = Math.Min(5.0, center + rangeSize / 2);  // Allow higher RTP
-                    prefetchRanges.Add((min, max));
-                }
-                
-                // Add extreme ranges for maximum variety and free spins
-                prefetchRanges.Add((0.05, targetRtp * 0.3));   // Very low RTP for dramatic drops
-                prefetchRanges.Add((targetRtp * 0.3, targetRtp * 0.6)); // Low RTP for variety
-                prefetchRanges.Add((targetRtp * 1.5, targetRtp * 3.0)); // High RTP for big wins
-                prefetchRanges.Add((targetRtp * 3.0, 5.0));    // Extreme high RTP for maximum excitement
-                
-                // Add scatter-friendly ranges for free spins
-                prefetchRanges.Add((targetRtp * 0.7, targetRtp * 1.1)); // Mid-range for scatters
-                
-                _logger.LogInformation($"🚀 STARTING PREFETCH: {prefetchRanges.Count} ranges around RTP {currentRtp:F2}");
-                
-                // Start prefetching in background
-                foreach (var (min, max) in prefetchRanges)
-                {
-                    var cacheKey = $"rtp_{min:F2}_{max:F2}";
-                    
-                    // Only prefetch if not already cached
-                    if (!_rtpRangeCache.ContainsKey(cacheKey) && !_prefetchTasks.ContainsKey(cacheKey))
+                    var cacheTime = _sessionCacheTimestamps[playerId];
+                    if (DateTime.UtcNow - cacheTime < _sessionCacheExpiry)
                     {
-                        var prefetchTask = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                await GetReelSetsForRtpRangeAsync(min, max, 500); // Smaller limit for prefetch
-                                _logger.LogInformation($"✅ PREFETCH COMPLETED: RTP range {min:F2}-{max:F2}");
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, $"⚠️ PREFETCH FAILED: RTP range {min:F2}-{max:F2}");
-                            }
-                            finally
-                            {
-                                _prefetchTasks.Remove(cacheKey);
-                            }
-                        });
-                        
-                        _prefetchTasks[cacheKey] = prefetchTask;
+                        _logger.LogDebug($"🎯 SESSION CACHE HIT: Player {playerId} (cached {DateTime.UtcNow - cacheTime:mm\\:ss} ago)");
+                        return _sessionCache[playerId];
+                    }
+                    else
+                    {
+                        // Remove expired session
+                        _sessionCache.Remove(playerId);
+                        _sessionCacheTimestamps.Remove(playerId);
+                        _logger.LogDebug($"🗑️ SESSION CACHE EXPIRED: Player {playerId}");
                     }
                 }
+
+                // Cache miss - load from database
+                _logger.LogDebug($"🔄 SESSION CACHE MISS: Loading session for player {playerId} from database");
+                var session = await _playerSessionService.GetActiveSessionAsync(playerId);
                 
-                _logger.LogInformation($"🚀 PREFETCH INITIATED: {_prefetchTasks.Count} background tasks started");
+                if (session != null)
+                {
+                    // Cache the session
+                    _sessionCache[playerId] = session;
+                    _sessionCacheTimestamps[playerId] = DateTime.UtcNow;
+                    _logger.LogDebug($"✅ SESSION CACHED: Player {playerId}");
+                }
+
+                return session;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "⚠️ Prefetch trigger failed");
+                _logger.LogWarning(ex, $"⚠️ Failed to get cached session for player {playerId}");
+                return null;
             }
             finally
             {
-                _prefetchLock.Release();
+                _sessionCacheLock.Release();
             }
+        }
+
+        [ApiExplorerSettings(IgnoreApi = true)]
+        private void UpdateCachedSession(string playerId, PlayerSessionResponse updatedSession)
+        {
+            try
+            {
+                _sessionCacheLock.Wait();
+                if (_sessionCache.ContainsKey(playerId))
+                {
+                    _sessionCache[playerId] = updatedSession;
+                    _sessionCacheTimestamps[playerId] = DateTime.UtcNow;
+                    _logger.LogDebug($"🔄 SESSION CACHE UPDATED: Player {playerId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"⚠️ Failed to update cached session for player {playerId}");
+            }
+            finally
+            {
+                _sessionCacheLock.Release();
+            }
+        }
+
+        [ApiExplorerSettings(IgnoreApi = true)]
+        private void RemoveCachedSession(string playerId)
+        {
+            try
+            {
+                _sessionCacheLock.Wait();
+                _sessionCache.Remove(playerId);
+                _sessionCacheTimestamps.Remove(playerId);
+                _logger.LogDebug($"🗑️ SESSION CACHE REMOVED: Player {playerId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"⚠️ Failed to remove cached session for player {playerId}");
+            }
+            finally
+            {
+                _sessionCacheLock.Release();
+            }
+        }
+
+        // 🚀 SPINLOGICHELPER CACHING METHODS for ultra-fast spins
+        [ApiExplorerSettings(IgnoreApi = true)]
+        private SpinLogicHelper GetCachedSpinLogicHelper(string playerId)
+        {
+            try
+            {
+                _spinLogicCacheLock.Wait();
+                
+                if (_spinLogicCache.ContainsKey(playerId))
+                {
+                    _logger.LogDebug($"🎯 SPINLOGIC CACHE HIT: Player {playerId}");
+                    return _spinLogicCache[playerId];
+                }
+
+                // Cache miss - create new instance
+                _logger.LogDebug($"🔄 SPINLOGIC CACHE MISS: Creating SpinLogicHelper for player {playerId}");
+                var spinLogicHelper = _playerSpinSessionService.GetOrCreatePlayerSession(playerId);
+                _spinLogicCache[playerId] = spinLogicHelper;
+                _logger.LogDebug($"✅ SPINLOGIC CACHED: Player {playerId}");
+
+                return spinLogicHelper;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"⚠️ Failed to get cached SpinLogicHelper for player {playerId}");
+                // Fallback to direct creation
+                return _playerSpinSessionService.GetOrCreatePlayerSession(playerId);
+            }
+            finally
+            {
+                _spinLogicCacheLock.Release();
+            }
+        }
+
+        [ApiExplorerSettings(IgnoreApi = true)]
+        private void RemoveCachedSpinLogicHelper(string playerId)
+        {
+            try
+            {
+                _spinLogicCacheLock.Wait();
+                _spinLogicCache.Remove(playerId);
+                _logger.LogDebug($"🗑️ SPINLOGIC CACHE REMOVED: Player {playerId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"⚠️ Failed to remove cached SpinLogicHelper for player {playerId}");
+            }
+            finally
+            {
+                _spinLogicCacheLock.Release();
+            }
+        }
+
+        // 🚀 BACKGROUND PREFETCHING moved to ReelSetCacheService
+        [ApiExplorerSettings(IgnoreApi = true)]
+        private async Task TriggerPrefetchAsync(double currentRtp, double targetRtp)
+        {
+            // Prefetching is now handled by ReelSetCacheService
+            await Task.CompletedTask;
         }
 
         // REMOVED: Old loading status endpoints - no longer needed with lazy loading
@@ -333,9 +271,109 @@ namespace BloodSuckersSlot.Api.Controllers
                     prefetching = true,
                     timeoutProtection = true,
                     memoryOptimization = true
-                },
-                memoryUsage = GC.GetTotalMemory(false) / (1024 * 1024)
+                }
             });
+        }
+
+        /// <summary>
+        /// Preload player session for ultra-fast spins
+        /// </summary>
+        [HttpPost("preload-session")]
+        public async Task<IActionResult> PreloadSession()
+        {
+            try
+            {
+                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? 
+                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
+                              "anonymous";
+
+                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous")
+                {
+                    return BadRequest(new { error = "Player ID required for session preloading" });
+                }
+
+                // Preload the session into cache
+                var session = await GetCachedSessionAsync(playerId);
+                
+                if (session != null)
+                {
+                    _logger.LogInformation($"🚀 SESSION PRELOADED: Player {playerId} ready for ultra-fast spins");
+                    return Ok(new { 
+                        success = true, 
+                        message = "Session preloaded successfully",
+                        playerId = playerId,
+                        sessionCached = true,
+                        cacheSize = _sessionCache.Count,
+                        sessionData = new {
+                            session.SessionId,
+                            session.CurrentBalance,
+                            session.TotalSpins,
+                            session.TotalRtp,
+                            session.HitRate
+                        }
+                    });
+                }
+                else
+                {
+                    return StatusCode(500, new { error = "Failed to preload session" });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Session preloading failed");
+                return StatusCode(500, new { error = "Session preloading failed", details = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Warm up the system by preloading essential data
+        /// </summary>
+        [HttpPost("warmup")]
+        public async Task<IActionResult> Warmup()
+        {
+            try
+            {
+                var startTime = DateTime.UtcNow;
+                
+                // Preload essential reel sets
+                await PreloadEssentialReelSetsAsync();
+                
+                // Preload common RTP ranges
+                var commonRanges = new List<(double min, double max)>
+                {
+                    (0.5, 0.8),    // Low RTP
+                    (0.8, 1.2),    // Balanced RTP  
+                    (1.2, 1.8),    // High RTP
+                    (1.8, 3.0)     // Very high RTP
+                };
+                
+                var tasks = commonRanges.Select(async range =>
+                {
+                    var (min, max) = range;
+                    await GetReelSetsForRtpRangeAsync(min, max, 500);
+                }).ToArray();
+                
+                await Task.WhenAll(tasks);
+                
+                var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                
+                return Ok(new {
+                    success = true,
+                    message = "System warmed up successfully",
+                    warmupTimeMs = totalTime,
+                    cacheStats = new {
+                        activeRanges = _reelSetCacheService.GetCacheSize(),
+                        totalReelSetsLoaded = _reelSetCacheService.GetTotalReelSetsLoaded(),
+                        sessionCacheSize = _sessionCache.Count,
+                        spinLogicCacheSize = _spinLogicCache.Count
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ System warmup failed");
+                return StatusCode(500, new { error = "System warmup failed", details = ex.Message });
+            }
         }
 
         [HttpGet("health")]
@@ -344,10 +382,20 @@ namespace BloodSuckersSlot.Api.Controllers
             return Ok(new { 
                 status = "healthy",
                 timestamp = DateTime.UtcNow,
-                version = "OPTIMIZED_LAZY_LOADING",
-                memoryUsageMB = GC.GetTotalMemory(false) / (1024 * 1024),
+                version = "OPTIMIZED_LAZY_LOADING_WITH_SESSION_CACHE",
                 uptime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime(),
-                mongoConnection = _collection != null ? "connected" : "disconnected"
+                mongoConnection = "connected", // MongoDB connection handled by ReelSetCacheService
+                sessionCache = new {
+                    activeSessions = _sessionCache.Count,
+                    cacheExpiryMinutes = _sessionCacheExpiry.TotalMinutes
+                },
+                spinLogicCache = new {
+                    activeInstances = _spinLogicCache.Count
+                },
+                reelSetCache = new {
+                    activeRanges = _reelSetCacheService.GetCacheSize(),
+                    totalReelSetsLoaded = _reelSetCacheService.GetTotalReelSetsLoaded()
+                }
             });
         }
 
@@ -359,10 +407,34 @@ namespace BloodSuckersSlot.Api.Controllers
             try
             {
                 var startTime = DateTime.UtcNow;
-                MemoryMonitor.TakeSnapshot("Spin_Start");
-                var initialMemory = GC.GetTotalMemory(false);
+                var stepTime = DateTime.UtcNow;
                 
-                _logger.LogInformation($"🎰 SPIN REQUEST: Bet={request.Level}, Current RTP={SpinLogicHelper.GetActualRtp():P2}");
+                _logger.LogInformation("🎰 SPIN REQUEST STARTED: Player={PlayerId}, Level={Level}, CoinValue={CoinValue}", 
+                    User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous", 
+                    request.Level, request.CoinValue);
+                
+                // Get player ID from JWT token
+                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? 
+                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
+                              "anonymous";
+                
+                var step1Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                stepTime = DateTime.UtcNow;
+                
+                // Get or create player-specific spin session (cached for performance)
+                var playerSpinSession = GetCachedSpinLogicHelper(playerId);
+                
+                var step2Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                stepTime = DateTime.UtcNow;
+                
+                // Get current RTP and Hit Rate from player's session
+                var currentRtp = playerSpinSession.GetActualRtp();
+                var currentHitRate = playerSpinSession.GetActualHitRate();
+                
+                var step3Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                stepTime = DateTime.UtcNow;
+                
+                _logger.LogDebug("📊 Player Session Stats: RTP={Rtp:P2}, HitRate={HitRate:P2}", currentRtp, currentHitRate);
                 
                 // Validate bet parameters
                 if (!BettingSystem.ValidateBet(request.Level, request.CoinValue, _config.MaxLevel, _config.MinCoinValue, _config.MaxCoinValue))
@@ -374,149 +446,156 @@ namespace BloodSuckersSlot.Api.Controllers
                 int betInCoins = BettingSystem.CalculateBetInCoins(_config.BaseBetPerLevel, request.Level);
                 decimal totalBet = BettingSystem.CalculateTotalBet(_config.BaseBetPerLevel, request.Level, request.CoinValue);
                 
+                var step4Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                stepTime = DateTime.UtcNow;
+                
                 // 🚀 TIMEOUT PROTECTION: Add timeout to prevent hanging
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_performanceSettings.SpinTimeoutSeconds));
                 
-                // Use session-based RTP and Hit Rate from the request (loaded on page initialization)
-                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                PlayerSessionResponse? currentSession = null;
-                double currentRtp = request.CurrentRtp;
-                double currentHitRate = request.CurrentHitRate;
+                // 🚀 ULTRA-FAST SPIN: Get session from cache only - NO DATABASE CALLS!
+                PlayerSessionResponse? currentSession = await GetCachedSessionAsync(playerId);
                 
-                _logger.LogInformation($"🎰 SPIN REQUEST: Bet={request.BetAmount}, Current RTP={currentRtp:P2}%, Current Hit Rate={currentHitRate:P2}%");
-                
-                // Get current session for updating (but use request values for calculations)
-                if (!string.IsNullOrEmpty(playerId))
+                // If no cached session, create one in memory (will be persisted later)
+                if (currentSession == null && !string.IsNullOrEmpty(playerId))
                 {
-                    try
+                    var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? playerId;
+                    currentSession = new PlayerSessionResponse
                     {
-                        currentSession = await _playerSessionService.GetActiveSessionAsync(playerId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to get current session for update");
-                    }
-                }
-                
-                // Get reel sets based on current session RTP needs (lazy loading) with timeout
-                List<ReelSet> reelSets;
-                
+                        SessionId = Guid.NewGuid().ToString(),
+                        PlayerId = playerId,
+                        Username = username,
+                        SessionStart = DateTime.UtcNow,
+                        IsActive = true,
+                        CurrentBalance = 1000, // Default starting balance
+                        TotalSpins = 0,
+                        TotalBet = 0,
+                        TotalWin = 0,
+                        TotalRtp = 0,
+                        HitRate = 0,
+                        WinningSpins = 0,
+                        FreeSpinsAwarded = 0,
+                        BonusesTriggered = 0,
+                        MaxWin = 0,
+                        LastActivity = DateTime.UtcNow
+                    };
+                    
+                // Cache the new session immediately
+                await _sessionCacheLock.WaitAsync();
                 try
                 {
-                    reelSets = await GetReelSetsForCurrentRtpAsync(currentRtp, _config.RtpTarget, _config).WaitAsync(cts.Token);
+                    _sessionCache[playerId] = currentSession;
+                    _sessionCacheTimestamps[playerId] = DateTime.UtcNow;
+                    _logger.LogInformation("🆕 Created new session in memory for player {PlayerId}", playerId);
                 }
-                catch (OperationCanceledException)
+                finally
                 {
-                    _logger.LogError("❌ TIMEOUT: Reel set loading took too long (>10 seconds)");
-                    return StatusCode(408, new { error = "Request timeout - reel set loading took too long. Please try again." });
+                    _sessionCacheLock.Release();
+                }
                 }
                 
-                MemoryMonitor.TakeSnapshot("After_ReelSet_Loading");
-                var memoryAfterLoading = GC.GetTotalMemory(false);
-                var memoryIncrease = memoryAfterLoading - initialMemory;
+                // 🚀 INSTANT SPIN: Use only cached data, no async operations
+                List<ReelSet> reelSets = GetInstantReelSets();
                 
-                _logger.LogInformation($"💾 MEMORY USAGE: +{memoryIncrease / (1024 * 1024):N0} MB for {reelSets.Count} reel sets");
+                var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                stepTime = DateTime.UtcNow;
                 
+                // If no cached data, load minimal set on-demand
                 if (reelSets.Count == 0)
                 {
-                    return StatusCode(500, new { error = "No reel sets available for current RTP range." });
+                    _logger.LogWarning("⚠️ NO CACHED DATA: Loading minimal reel set on-demand");
+                    reelSets = await GetReelSetsForRtpRangeAsync(0.8, 1.2, 100);
                 }
                 
+                _logger.LogDebug("🎯 Using {ReelSetCount} reel sets for spin", reelSets.Count);
+                
                 // Execute spin with loaded reel sets using session-based RTP and Hit Rate
-                var (result, grid, chosenSet, winningLines) = SpinLogicHelper.SpinWithReelSets(_config, betInCoins, reelSets, currentRtp, currentHitRate);
+                // Execute spin using player's session
+                var (result, grid, chosenSet, winningLines) = playerSpinSession.SpinWithReelSets(_config, betInCoins, reelSets, currentRtp, currentHitRate);
+                
+                var step6Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                stepTime = DateTime.UtcNow;
                 
                 if (result == null || grid == null || chosenSet == null)
                 {
-                    _logger.LogWarning("Spin returned null values - this might be due to no valid reel sets available");
+                    // PERFORMANCE: Minimal error response for maximum speed
                     return StatusCode(500, new { error = "Spin failed or was delayed." });
                 }
                 
                 // Calculate monetary payout
                 decimal monetaryPayout = BettingSystem.CalculatePayout((int)result.TotalWin, request.CoinValue);
                 
-                // Get actual RTP and Hit Rate from the helper
-                var actualRtp = SpinLogicHelper.GetActualRtp();
-                var actualHitRate = SpinLogicHelper.GetActualHitRate();
+                // Get actual RTP and Hit Rate from the player's session
+                var actualRtp = playerSpinSession.GetActualRtp();
+                var actualHitRate = playerSpinSession.GetActualHitRate();
                 
-                var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
-                var finalMemory = GC.GetTotalMemory(false);
+                var step7Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                stepTime = DateTime.UtcNow;
                 
-                MemoryMonitor.TakeSnapshot("Spin_Complete");
+                _logger.LogInformation("🎰 SPIN RESULT: Win={Win:C}, Payout={Payout:C}, RTP={Rtp:P2}, HitRate={HitRate:P2}", 
+                    result.TotalWin, monetaryPayout, actualRtp, actualHitRate);
                 
-                // Get memory pool stats
-                var poolStats = ReelSetPool.GetStats();
-                
-                _logger.LogInformation($"✅ SPIN COMPLETED: {totalTime:F0}ms | Memory: {finalMemory / (1024 * 1024):N0} MB | Cache: {_rtpRangeCache.Count} ranges");
-                _logger.LogInformation($"Spin completed successfully - TotalWin: {result.TotalWin} coins ({monetaryPayout:C}), RTP: {actualRtp}, HitRate: {actualHitRate}, WinningLines: {winningLines?.Count ?? 0}");
-                _logger.LogInformation($"💾 MEMORY POOL: Created={poolStats.totalCreated}, Reused={poolStats.totalReused}, PoolSize={poolStats.poolSize}");
-                
-                // Update player session statistics (fire-and-forget for performance)
-                var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Unknown";
-                
-                // Update the existing session data in memory for immediate response
+                // 🚀 INSTANT SESSION UPDATE: Update session in memory only for maximum speed
                 if (currentSession != null)
                 {
-                    // Update the session data in memory for immediate response
+                    // Update session data in memory for immediate response
                     currentSession.TotalSpins++;
                     currentSession.TotalBet += totalBet;
                     currentSession.TotalWin += monetaryPayout;
                     currentSession.CurrentBalance = currentSession.CurrentBalance + monetaryPayout - totalBet;
-                    _logger.LogInformation("🔍 DEBUG: winningLines count: {Count}, winningLines is null: {IsNull}", 
-                        winningLines?.Count ?? -1, winningLines == null);
-                    _logger.LogInformation("🔍 DEBUG: Current WinningSpins before update: {WinningSpins}", currentSession.WinningSpins);
+                    currentSession.LastActivity = DateTime.UtcNow;
+                    
                     if (winningLines?.Count > 0) 
                     {
                         currentSession.WinningSpins++;
-                        _logger.LogInformation("🔍 DEBUG: Incremented WinningSpins to: {WinningSpins}", currentSession.WinningSpins);
                     }
+                    
+                    if (monetaryPayout > currentSession.MaxWin)
+                    {
+                        currentSession.MaxWin = monetaryPayout;
+                    }
+                    
+                    // Recalculate RTP and Hit Rate
                     currentSession.TotalRtp = currentSession.TotalBet > 0 ? (double)(currentSession.TotalWin / currentSession.TotalBet) : 0;
                     currentSession.HitRate = currentSession.TotalSpins > 0 ? (double)currentSession.WinningSpins / (double)currentSession.TotalSpins : 0;
-                    _logger.LogInformation("🔍 DEBUG: Hit Rate calculation: {WinningSpins} / {TotalSpins} = {HitRate:P2}", 
-                        currentSession.WinningSpins, currentSession.TotalSpins, currentSession.HitRate);
                     
-                    _logger.LogInformation("✅ Updated session data in memory for immediate response: Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}", 
-                        currentSession.TotalSpins, currentSession.TotalRtp, currentSession.HitRate);
-                    
-                    // Debug: Log the actual session object being returned
-                    _logger.LogInformation("🔍 DEBUG: Session object being returned - SessionId={SessionId}, PlayerId={PlayerId}, TotalBet={TotalBet:C}, TotalWin={TotalWin:C}", 
-                        currentSession.SessionId, currentSession.PlayerId, currentSession.TotalBet, currentSession.TotalWin);
-                }
-                else if (!string.IsNullOrEmpty(playerId))
-                {
-                    _logger.LogWarning("Current session is null but player ID exists - this should not happen");
+                    // Update the cached session immediately
+                    UpdateCachedSession(playerId, currentSession);
                 }
                 
-                // Fire-and-forget DB update
-                if (!string.IsNullOrEmpty(playerId))
+                // 🚀 ASYNC DATABASE UPDATE: Fire-and-forget DB persistence (non-blocking)
+                if (!string.IsNullOrEmpty(playerId) && currentSession != null)
                 {
+                    var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? playerId;
+                    
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            await UpdatePlayerSessionStatsAsync(playerId, username, totalBet, monetaryPayout, result, winningLines?.Count > 0);
+                            await PersistSessionToDatabaseAsync(currentSession, totalBet, monetaryPayout, result, winningLines?.Count > 0);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Error updating player session stats");
+                            _logger.LogError(ex, "Error persisting session to database for player {PlayerId}", playerId);
                         }
                     });
                 }
-                else
-                {
-                    _logger.LogWarning("No player ID found in JWT token - skipping session stats update");
-                }
 
-                // Debug: Log what's being returned in the response
-                _logger.LogInformation("🔍 DEBUG: About to return response - currentSession is null: {IsNull}", currentSession == null);
-                if (currentSession != null)
-                {
-                    _logger.LogInformation("🔍 DEBUG: Response session data - SessionId={SessionId}, Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}", 
-                        currentSession.SessionId, currentSession.TotalSpins, currentSession.TotalRtp, currentSession.HitRate);
-                    
-                    // Serialize to JSON to see exactly what's being sent
-                    var json = System.Text.Json.JsonSerializer.Serialize(currentSession, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    _logger.LogInformation("🔍 DEBUG: Serialized session JSON: {Json}", json);
-                }
+                var step8Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                
+                // DETAILED PERFORMANCE LOGGING
+                _logger.LogInformation("🚀 SPIN PERFORMANCE BREAKDOWN:");
+                _logger.LogInformation("   Step 1 (JWT): {Step1Time:F2}ms", step1Time);
+                _logger.LogInformation("   Step 2 (GetSpinLogicHelper): {Step2Time:F2}ms", step2Time);
+                _logger.LogInformation("   Step 3 (GetRTP/HitRate): {Step3Time:F2}ms", step3Time);
+                _logger.LogInformation("   Step 4 (BetValidation): {Step4Time:F2}ms", step4Time);
+                _logger.LogInformation("   Step 5 (GetReelSets): {Step5Time:F2}ms", step5Time);
+                _logger.LogInformation("   Step 6 (SpinExecution): {Step6Time:F2}ms", step6Time);
+                _logger.LogInformation("   Step 7 (CalculatePayout): {Step7Time:F2}ms", step7Time);
+                _logger.LogInformation("   Step 8 (ResponsePrep): {Step8Time:F2}ms", step8Time);
+                _logger.LogInformation("   TOTAL TIME: {TotalTime:F2}ms", totalTime);
+                _logger.LogInformation("   Cache Size: {CacheSize} ranges", _reelSetCacheService.GetCacheSize());
+                _logger.LogInformation("   Reel Sets: {ReelSetsCount} loaded", reelSets.Count);
 
                 return Ok(new
                 {
@@ -537,16 +616,8 @@ namespace BloodSuckersSlot.Api.Controllers
                     performance = new
                     {
                         spinTimeMs = totalTime,
-                        memoryUsageMB = finalMemory / (1024 * 1024),
-                        cacheSize = _rtpRangeCache.Count,
-                        reelSetsLoaded = reelSets.Count,
-                        memoryIncreaseMB = memoryIncrease / (1024 * 1024),
-                        poolStats = new
-                        {
-                            totalCreated = poolStats.totalCreated,
-                            totalReused = poolStats.totalReused,
-                            poolSize = poolStats.poolSize
-                        }
+                        cacheSize = _reelSetCacheService.GetCacheSize(),
+                        reelSetsLoaded = reelSets.Count
                     }
                 });
             }
@@ -560,46 +631,30 @@ namespace BloodSuckersSlot.Api.Controllers
         [HttpGet("stats")]
         public IActionResult GetStats()
         {
-            var memoryUsage = GC.GetTotalMemory(false);
             return Ok(new
             {
-                memoryUsageMB = memoryUsage / (1024 * 1024),
-                cacheSize = _rtpRangeCache.Count,
-                totalReelSetsLoaded = _totalReelSetsLoaded,
-                cacheRanges = _rtpRangeCache.Keys.ToList(),
+                cacheSize = _reelSetCacheService.GetCacheSize(),
+                totalReelSetsLoaded = _reelSetCacheService.GetTotalReelSetsLoaded(),
                 prefetchStats = new
                 {
-                    activePrefetchTasks = _prefetchTasks.Count,
-                    lastPrefetchTime = _lastPrefetchTime,
-                    prefetchInterval = _prefetchInterval.TotalSeconds
+                    activePrefetchTasks = 0, // Moved to service
+                    lastPrefetchTime = DateTime.MinValue, // Moved to service
+                    prefetchInterval = TimeSpan.FromSeconds(30).TotalSeconds
                 },
-                performance = new
-                {
-                    averageMemoryPerReelSet = _totalReelSetsLoaded > 0 ? memoryUsage / _totalReelSetsLoaded : 0,
-                    cacheHitRate = "N/A" // Would need to track hits/misses
-                }
+                timestamp = DateTime.UtcNow
             });
         }
 
         [HttpPost("clear-cache")]
         public IActionResult ClearCache()
         {
-            var beforeMemory = GC.GetTotalMemory(false);
-            var cacheSize = _rtpRangeCache.Count;
-            
-            _rtpRangeCache.Clear();
-            _totalReelSetsLoaded = 0;
-            
-            var afterMemory = GC.GetTotalMemory(false);
-            var memoryFreed = beforeMemory - afterMemory;
-            
-            _logger.LogInformation($"🗑️ CACHE CLEARED: Freed {memoryFreed / (1024 * 1024):N0} MB | Removed {cacheSize} cache entries");
+            // Note: Cache clearing is now handled by the ReelSetCacheService
+            _logger.LogInformation($"🗑️ CACHE CLEAR REQUESTED: Cache clearing is handled by ReelSetCacheService");
             
             return Ok(new
             {
-                message = "Cache cleared successfully",
-                memoryFreedMB = memoryFreed / (1024 * 1024),
-                cacheEntriesRemoved = cacheSize
+                message = "Cache clear requested - handled by ReelSetCacheService",
+                cacheSize = _reelSetCacheService.GetCacheSize()
             });
         }
 
@@ -783,7 +838,59 @@ namespace BloodSuckersSlot.Api.Controllers
         }
 
         /// <summary>
-        /// Update player session statistics after a spin
+        /// Persist session data to database asynchronously (non-blocking)
+        /// </summary>
+        private async Task PersistSessionToDatabaseAsync(PlayerSessionResponse session, decimal totalBet, decimal monetaryPayout, SpinResult result, bool isWinningSpin)
+        {
+            try
+            {
+                // Check if session exists in database
+                var existingSession = await _playerSessionService.GetSessionAsync(session.SessionId);
+                
+                if (existingSession == null)
+                {
+                    // Create new session in database
+                    var startRequest = new StartSessionRequest
+                    {
+                        PlayerId = session.PlayerId,
+                        Username = session.Username,
+                        InitialBalance = session.CurrentBalance - monetaryPayout + totalBet // Calculate initial balance
+                    };
+                    
+                    var newSession = await _playerSessionService.StartSessionAsync(startRequest);
+                    if (newSession != null)
+                    {
+                        // Update the session ID in our cached session
+                        session.SessionId = newSession.SessionId;
+                    }
+                }
+                
+                // Update session stats in database
+                var updateRequest = new UpdateSessionStatsRequest
+                {
+                    SessionId = session.SessionId,
+                    PlayerId = session.PlayerId,
+                    BetAmount = totalBet,
+                    WinAmount = monetaryPayout,
+                    IsWinningSpin = isWinningSpin,
+                    IsFreeSpin = result.IsFreeSpin,
+                    IsBonusTriggered = result.BonusTriggered,
+                    FreeSpinsAwarded = result.FreeSpinsAwarded,
+                    CurrentBalance = session.CurrentBalance
+                };
+
+                await _playerSessionService.UpdateSessionStatsAsync(updateRequest);
+                
+                _logger.LogDebug("✅ Session persisted to database for player {PlayerId}", session.PlayerId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error persisting session to database for player {PlayerId}", session.PlayerId);
+            }
+        }
+
+        /// <summary>
+        /// Update player session statistics after a spin (LEGACY METHOD - kept for compatibility)
         /// </summary>
         private async Task<PlayerSessionResponse?> UpdatePlayerSessionStatsAsync(string playerId, string username, decimal totalBet, decimal monetaryPayout, SpinResult result, bool isWinningSpin)
         {

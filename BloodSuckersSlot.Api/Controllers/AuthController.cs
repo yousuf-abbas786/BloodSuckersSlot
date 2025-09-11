@@ -12,13 +12,15 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly IGamingEntityAuthService _entityAuthService;
         private readonly IJwtService _jwtService;
         private readonly IPlayerSessionService _playerSessionService;
+        private readonly IPlayerSpinSessionService _playerSpinSessionService;
         private readonly ILogger<AuthController> _logger;
 
-        public AuthController(IGamingEntityAuthService entityAuthService, IJwtService jwtService, IPlayerSessionService playerSessionService, ILogger<AuthController> logger)
+        public AuthController(IGamingEntityAuthService entityAuthService, IJwtService jwtService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, ILogger<AuthController> logger)
         {
             _entityAuthService = entityAuthService;
             _jwtService = jwtService;
             _playerSessionService = playerSessionService;
+            _playerSpinSessionService = playerSpinSessionService;
             _logger = logger;
         }
 
@@ -321,7 +323,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 if (!string.IsNullOrEmpty(playerId))
                 {
                     await _playerSessionService.EndSessionByPlayerIdAsync(playerId);
-                    _logger.LogInformation("Ended session for player {PlayerId} on logout", playerId);
+                    _playerSpinSessionService.RemovePlayerSession(playerId);
+                    _logger.LogInformation("Ended session and cleaned up SpinLogicHelper for player {PlayerId} on logout", playerId);
                 }
 
                 // In a stateless JWT implementation, logout is handled client-side

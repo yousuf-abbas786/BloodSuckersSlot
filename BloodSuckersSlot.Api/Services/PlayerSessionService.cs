@@ -495,7 +495,8 @@ namespace BloodSuckersSlot.Api.Services
             };
 
             // Debug logging
-            Console.WriteLine($"🔍 MapToResponse: SessionId={response.SessionId}, Spins={response.TotalSpins}, RTP={response.TotalRtp:P2}, HitRate={response.HitRate:P2}");
+            // PERFORMANCE: Console.WriteLine removed for speed
+            // Console.WriteLine($"🔍 MapToResponse: SessionId={response.SessionId}, Spins={response.TotalSpins}, RTP={response.TotalRtp:P2}, HitRate={response.HitRate:P2}");
 
             return response;
         }
