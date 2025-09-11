@@ -75,30 +75,197 @@ namespace BloodSuckersSlot.Api.Controllers
             return _reelSetCacheService.GetInstantReelSets();
         }
 
-        // Get reel sets for current RTP needs - ULTRA AGGRESSIVE FOR MAXIMUM WAVES
+        // Get reel sets for current RTP needs - SMART PREFETCHING ENABLED
         [ApiExplorerSettings(IgnoreApi = true)]
         public async Task<List<ReelSet>> GetReelSetsForCurrentRtpAsync(double currentRtp, double targetRtp, GameConfig config)
         {
             var startTime = DateTime.UtcNow;
             
-            // 🚀 ULTRA-FAST CACHE-ONLY MODE: Only use pre-loaded data for maximum speed
-            var allReelSets = _reelSetCacheService.GetInstantReelSets();
+            // 🚀 SMART PREFETCHING: Try to get smart prefetched ranges first
+            var smartRanges = CalculateRtpRange(currentRtp, targetRtp);
             
-            var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            
-            if (allReelSets.Count > 0)
+            foreach (var range in smartRanges)
             {
-                _logger.LogInformation($"🎯 ULTRA-FAST: {allReelSets.Count} reel sets from cache in {totalTime:F0}ms");
-                return allReelSets;
+                var prefetchedSets = await _reelSetCacheService.GetReelSetsForRtpRangeAsync(range.Item1, range.Item2, 200);
+                if (prefetchedSets.Count > 0)
+                {
+                    var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                    _logger.LogInformation($"🎯 SMART PREFETCH: {prefetchedSets.Count} reel sets for RTP {range.Item1:P2}-{range.Item2:P2} in {totalTime:F0}ms");
+                    return prefetchedSets;
+                }
             }
             
-            // Fallback: If no cached data, load minimal set (shouldn't happen after preload)
-            _logger.LogWarning("⚠️ NO CACHED DATA: Loading minimal reel set (preload may have failed)");
+            // Fallback: Use static preloaded data if no smart prefetch available
+            var staticSets = _reelSetCacheService.GetInstantReelSets();
+            var fallbackTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
             
-            var fallbackSets = await _reelSetCacheService.GetReelSetsForRtpRangeAsync(targetRtp * 0.8, targetRtp * 1.2, 100);
-            _logger.LogInformation($"🔄 FALLBACK: Loaded {fallbackSets.Count} reel sets in {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
+            if (staticSets.Count > 0)
+            {
+                _logger.LogInformation($"🔄 STATIC FALLBACK: {staticSets.Count} reel sets from static cache in {fallbackTime:F0}ms");
+                return staticSets;
+            }
             
-            return fallbackSets;
+            // Last resort: Load minimal set on-demand
+            _logger.LogWarning("⚠️ NO CACHED DATA: Loading minimal reel set on-demand");
+            var emergencySets = await _reelSetCacheService.GetReelSetsForRtpRangeAsync(targetRtp * 0.8, targetRtp * 1.2, 100);
+            _logger.LogInformation($"🚨 EMERGENCY LOAD: {emergencySets.Count} reel sets in {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
+            
+            return emergencySets;
+        }
+        
+        // 🎯 SMART REEL SET SELECTION FORMULA: Pick BEST reel sets for RTP/Hit Rate recovery
+        private List<ReelSet> SelectOptimalReelSetsForRecovery(List<ReelSet> allReelSets, double currentRtp, double currentHitRate, GameConfig config)
+        {
+            if (!allReelSets.Any()) return allReelSets;
+            
+            var optimalSets = new List<ReelSet>();
+            
+            // 🚨 EMERGENCY RECOVERY: RTP critically low (< 50% of target)
+            if (currentRtp < config.RtpTarget * 0.5) // Below 44%
+            {
+                _logger.LogInformation($"🚨 EMERGENCY RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.5:P2}");
+                
+                // Use ONLY very high RTP reel sets (120%+ of target)
+                optimalSets = allReelSets
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2) // 105.6%+
+                    .OrderByDescending(r => r.ExpectedRtp)
+                    .Take(100)
+                    .ToList();
+                
+                _logger.LogInformation($"🚨 EMERGENCY: Selected {optimalSets.Count} ultra-high RTP reel sets");
+            }
+            
+            // 📈 ULTRA AGGRESSIVE RECOVERY: RTP low but not critical (50%-80% of target)
+            else if (currentRtp < config.RtpTarget * 0.8) // Below 70.4%
+            {
+                _logger.LogInformation($"📈 ULTRA AGGRESSIVE RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.8:P2}");
+                
+                // Use ONLY ultra-high RTP reel sets (130%+ of target) - NO COMPROMISE!
+                optimalSets = allReelSets
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.3) // 114.4%+ minimum
+                    .OrderByDescending(r => r.ExpectedRtp) // Pure RTP priority
+                    .Take(100)
+                    .ToList();
+                
+                // If no ultra-high RTP sets, use high RTP sets (120%+)
+                if (!optimalSets.Any())
+                {
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2) // 105.6%+ minimum
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(100)
+                        .ToList();
+                }
+                
+                _logger.LogInformation($"📈 ULTRA AGGRESSIVE: Selected {optimalSets.Count} ultra-high RTP reel sets (min: {config.RtpTarget * 1.3:P2})");
+            }
+            
+            // 🎯 AGGRESSIVE BALANCED RECOVERY: RTP below target but recoverable (80%-100% of target)
+            else if (currentRtp < config.RtpTarget) // Below 88%
+            {
+                _logger.LogInformation($"🎯 AGGRESSIVE BALANCED RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget:P2}");
+                
+                // Use ONLY high RTP reel sets (110%+ of target) - Force recovery!
+                optimalSets = allReelSets
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1) // 96.8%+ minimum
+                    .OrderByDescending(r => r.ExpectedRtp) // Pure RTP priority
+                    .Take(150)
+                    .ToList();
+                
+                // If no high RTP sets, use target+ reel sets (105%+)
+                if (!optimalSets.Any())
+                {
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.05) // 92.4%+ minimum
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(150)
+                        .ToList();
+                }
+                
+                _logger.LogInformation($"🎯 AGGRESSIVE BALANCED: Selected {optimalSets.Count} high RTP reel sets (min: {config.RtpTarget * 1.1:P2})");
+            }
+            
+            // 📉 REDUCTION: RTP above target (100%+ of target)
+            else if (currentRtp > config.RtpTarget * 1.1) // Above 96.8%
+            {
+                _logger.LogInformation($"📉 RTP REDUCTION: RTP {currentRtp:P2} > {config.RtpTarget * 1.1:P2}");
+                
+                // Use lower RTP reel sets to bring it down
+                optimalSets = allReelSets
+                    .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.9) // 79.2% max
+                    .OrderByDescending(r => r.EstimatedHitRate) // Prefer good hit rates
+                    .Take(150)
+                    .ToList();
+                
+                _logger.LogInformation($"📉 REDUCTION: Selected {optimalSets.Count} lower RTP reel sets");
+            }
+            
+            // 🌊 NATURAL VOLATILITY: RTP in healthy range (88%-96.8%)
+            else
+            {
+                _logger.LogInformation($"🌊 NATURAL VOLATILITY: RTP {currentRtp:P2} in healthy range");
+                
+                // Use diverse reel sets for natural volatility
+                optimalSets = allReelSets
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.7 && r.ExpectedRtp <= config.RtpTarget * 1.3)
+                    .OrderByDescending(r => CalculateReelSetScore(r, currentRtp, currentHitRate, config))
+                    .Take(300) // Maximum variety
+                    .ToList();
+                
+                _logger.LogInformation($"🌊 VOLATILITY: Selected {optimalSets.Count} diverse reel sets");
+            }
+            
+            // Fallback: If no optimal sets found, use all sets
+            if (!optimalSets.Any())
+            {
+                _logger.LogWarning("⚠️ NO OPTIMAL SETS: Using all available reel sets");
+                optimalSets = allReelSets.Take(200).ToList();
+            }
+            
+            return optimalSets;
+        }
+        
+        // 🧮 REEL SET SCORING FORMULA: Calculate best reel set based on current state
+        private double CalculateReelSetScore(ReelSet reelSet, double currentRtp, double currentHitRate, GameConfig config)
+        {
+            // RTP Score: Higher score for reel sets that help reach target
+            double rtpScore = 1.0 - Math.Abs(reelSet.ExpectedRtp - config.RtpTarget) / config.RtpTarget;
+            
+            // Hit Rate Score: Higher score for reel sets that help reach target hit rate
+            double hitRateScore = 1.0 - Math.Abs(reelSet.EstimatedHitRate - config.TargetHitRate) / config.TargetHitRate;
+            
+            // Recovery Bonus: Extra score for reel sets that help recover from low RTP
+            double recoveryBonus = currentRtp < config.RtpTarget ? 
+                (reelSet.ExpectedRtp > config.RtpTarget ? 0.5 : 0) : 0;
+            
+            // Combined Score
+            return (rtpScore * 0.6) + (hitRateScore * 0.3) + (recoveryBonus * 0.1);
+        }
+
+        // Helper method to calculate RTP ranges for smart prefetching
+        private List<(double MinRtp, double MaxRtp)> CalculateRtpRange(double currentRtp, double targetRtp)
+        {
+            var ranges = new List<(double MinRtp, double MaxRtp)>();
+            
+            // Primary range: Around current RTP
+            var currentRange = (Math.Max(0.05, currentRtp - 0.1), Math.Min(3.0, currentRtp + 0.1));
+            ranges.Add(currentRange);
+            
+            // Recovery range: Towards target RTP
+            if (currentRtp < targetRtp)
+            {
+                var recoveryRange = (Math.Max(0.05, targetRtp - 0.15), Math.Min(3.0, targetRtp + 0.05));
+                ranges.Add(recoveryRange);
+            }
+            
+            // Adjacent ranges for variety
+            var adjacent1 = (Math.Max(0.05, currentRtp - 0.2), Math.Max(0.05, currentRtp - 0.1));
+            var adjacent2 = (Math.Min(3.0, currentRtp + 0.1), Math.Min(3.0, currentRtp + 0.2));
+            
+            if (adjacent1.Item1 < adjacent1.Item2) ranges.Add(adjacent1);
+            if (adjacent2.Item1 < adjacent2.Item2) ranges.Add(adjacent2);
+            
+            return ranges;
         }
 
         // 🚀 SESSION CACHING METHODS for ultra-fast spins
@@ -247,12 +414,29 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
-        // 🚀 BACKGROUND PREFETCHING moved to ReelSetCacheService
+        // 🚀 DYNAMIC PREFETCHING based on player trends
         [ApiExplorerSettings(IgnoreApi = true)]
         private async Task TriggerPrefetchAsync(double currentRtp, double targetRtp)
         {
-            // Prefetching is now handled by ReelSetCacheService
-            await Task.CompletedTask;
+            try
+            {
+                // Trigger smart prefetching based on current player RTP trends
+                _ = Task.Run(async () => 
+                {
+                    try
+                    {
+                        await _reelSetCacheService.PrefetchBasedOnPlayerTrendsAsync(currentRtp, targetRtp, 10);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ Prefetching failed for RTP range {CurrentRtp:P2}-{TargetRtp:P2}", currentRtp, targetRtp);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to trigger prefetching");
+            }
         }
 
         // REMOVED: Old loading status endpoints - no longer needed with lazy loading
@@ -493,20 +677,23 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
                 }
                 
-                // 🚀 INSTANT SPIN: Use only cached data, no async operations
-                List<ReelSet> reelSets = GetInstantReelSets();
+                // 🎯 SMART REEL SET SELECTION: Pick BEST reel sets based on current RTP/Hit Rate
+                List<ReelSet> allReelSets = GetInstantReelSets();
+                List<ReelSet> reelSets = SelectOptimalReelSetsForRecovery(allReelSets, currentRtp, currentHitRate, _config);
                 
                 var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
                 
-                // If no cached data, load minimal set on-demand
+                // If no cached data, use emergency fallback
                 if (reelSets.Count == 0)
                 {
-                    _logger.LogWarning("⚠️ NO CACHED DATA: Loading minimal reel set on-demand");
-                    reelSets = await GetReelSetsForRtpRangeAsync(0.8, 1.2, 100);
+                    _logger.LogWarning("⚠️ NO CACHED DATA: Using emergency fallback");
+                    reelSets = allReelSets.Take(100).ToList(); // Fast fallback
                 }
                 
                 _logger.LogDebug("🎯 Using {ReelSetCount} reel sets for spin", reelSets.Count);
+                
+                // 🚀 REMOVED: Slow prefetching that was slowing down spins
                 
                 // Execute spin with loaded reel sets using session-based RTP and Hit Rate
                 // Execute spin using player's session
@@ -635,12 +822,7 @@ namespace BloodSuckersSlot.Api.Controllers
             {
                 cacheSize = _reelSetCacheService.GetCacheSize(),
                 totalReelSetsLoaded = _reelSetCacheService.GetTotalReelSetsLoaded(),
-                prefetchStats = new
-                {
-                    activePrefetchTasks = 0, // Moved to service
-                    lastPrefetchTime = DateTime.MinValue, // Moved to service
-                    prefetchInterval = TimeSpan.FromSeconds(30).TotalSeconds
-                },
+                prefetchStats = _reelSetCacheService.GetPrefetchStats(),
                 timestamp = DateTime.UtcNow
             });
         }

@@ -12,6 +12,14 @@ namespace BloodSuckersSlot.Api.Services
         Task PreloadEssentialReelSetsAsync();
         int GetCacheSize();
         int GetTotalReelSetsLoaded();
+        
+        // Dynamic Prefetching Methods
+        Task PrefetchRtpRangeAsync(double minRtp, double maxRtp, int priority = 1);
+        Task PrefetchBasedOnPlayerTrendsAsync(double currentRtp, double targetRtp, int recentSpins = 10);
+        Task StartBackgroundPrefetchingAsync();
+        Task StopBackgroundPrefetchingAsync();
+        bool IsPrefetchingActive();
+        Dictionary<string, object> GetPrefetchStats();
     }
 
     public class ReelSetCacheService : IReelSetCacheService
@@ -34,6 +42,15 @@ namespace BloodSuckersSlot.Api.Services
         private double _prefetchRangeSize = 0.1;
         private DateTime _lastPrefetchTime = DateTime.MinValue;
         private TimeSpan _prefetchInterval = TimeSpan.FromSeconds(30);
+        
+        // Enhanced prefetching system
+        private CancellationTokenSource _prefetchCancellationToken = new();
+        private Task _backgroundPrefetchTask = null;
+        private bool _isPrefetchingActive = false;
+        private readonly Dictionary<string, DateTime> _prefetchHistory = new();
+        private readonly Dictionary<string, int> _prefetchPriority = new();
+        private readonly Queue<(double minRtp, double maxRtp, int priority)> _prefetchQueue = new();
+        private readonly SemaphoreSlim _prefetchQueueLock = new(1);
 
         public ReelSetCacheService(IMongoDatabase database, ILogger<ReelSetCacheService> logger, PerformanceSettings performanceSettings)
         {
@@ -58,6 +75,9 @@ namespace BloodSuckersSlot.Api.Services
             // Start background preload
             _logger.LogInformation("🚀 Starting background preload in separate task...");
             _ = Task.Run(async () => await PreloadEssentialReelSetsAsync());
+            
+            // Start dynamic prefetching system
+            _ = Task.Run(async () => await StartBackgroundPrefetchingAsync());
         }
 
         public async Task<List<ReelSet>> GetReelSetsForRtpRangeAsync(double minRtp, double maxRtp, int limit = 1000)
@@ -200,5 +220,234 @@ namespace BloodSuckersSlot.Api.Services
         {
             return _totalReelSetsLoaded;
         }
+
+        #region Dynamic Prefetching Methods
+
+        public async Task PrefetchRtpRangeAsync(double minRtp, double maxRtp, int priority = 1)
+        {
+            var cacheKey = $"rtp_{minRtp:F2}_{maxRtp:F2}";
+            
+            // Skip if already cached or recently prefetched
+            if (_rtpRangeCache.ContainsKey(cacheKey))
+            {
+                _logger.LogDebug("🎯 PREFETCH SKIP: Range {MinRtp:F2}-{MaxRtp:F2} already cached", minRtp, maxRtp);
+                return;
+            }
+
+            if (_prefetchHistory.ContainsKey(cacheKey) && 
+                DateTime.UtcNow - _prefetchHistory[cacheKey] < TimeSpan.FromMinutes(5))
+            {
+                _logger.LogDebug("🎯 PREFETCH SKIP: Range {MinRtp:F2}-{MaxRtp:F2} recently prefetched", minRtp, maxRtp);
+                return;
+            }
+
+            try
+            {
+                _logger.LogInformation("🚀 PREFETCHING: Range {MinRtp:F2}-{MaxRtp:F2} (Priority: {Priority})", minRtp, maxRtp, priority);
+                
+                var prefetchStartTime = DateTime.UtcNow;
+                await GetReelSetsForRtpRangeAsync(minRtp, maxRtp, _maxReelSetsPerRange);
+                var prefetchTime = (DateTime.UtcNow - prefetchStartTime).TotalMilliseconds;
+                
+                _prefetchHistory[cacheKey] = DateTime.UtcNow;
+                _prefetchPriority[cacheKey] = priority;
+                
+                _logger.LogInformation("✅ PREFETCH COMPLETE: Range {MinRtp:F2}-{MaxRtp:F2} in {Time:F2}ms", 
+                    minRtp, maxRtp, prefetchTime);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ PREFETCH FAILED: Range {MinRtp:F2}-{MaxRtp:F2}", minRtp, maxRtp);
+            }
+        }
+
+        public async Task PrefetchBasedOnPlayerTrendsAsync(double currentRtp, double targetRtp, int recentSpins = 10)
+        {
+            try
+            {
+                _logger.LogInformation("🎯 SMART PREFETCH: Current RTP={CurrentRtp:P2}, Target={TargetRtp:P2}, RecentSpins={RecentSpins}", 
+                    currentRtp, targetRtp, recentSpins);
+
+                var prefetchTasks = new List<Task>();
+
+                // 1. Prefetch current RTP range (high priority)
+                var currentRange = CalculateRtpRange(currentRtp, _prefetchRangeSize);
+                prefetchTasks.Add(PrefetchRtpRangeAsync(currentRange.min, currentRange.max, 3));
+
+                // 2. Prefetch target RTP range (high priority)
+                var targetRange = CalculateRtpRange(targetRtp, _prefetchRangeSize);
+                prefetchTasks.Add(PrefetchRtpRangeAsync(targetRange.min, targetRange.max, 3));
+
+                // 3. Prefetch recovery ranges if RTP is low
+                if (currentRtp < targetRtp * 0.8) // If RTP is significantly below target
+                {
+                    var recoveryRanges = CalculateRecoveryRanges(currentRtp, targetRtp);
+                    foreach (var range in recoveryRanges)
+                    {
+                        prefetchTasks.Add(PrefetchRtpRangeAsync(range.min, range.max, 2));
+                    }
+                }
+
+                // 4. Prefetch adjacent ranges for smooth transitions
+                var adjacentRanges = CalculateAdjacentRanges(currentRtp, targetRtp);
+                foreach (var range in adjacentRanges)
+                {
+                    prefetchTasks.Add(PrefetchRtpRangeAsync(range.min, range.max, 1));
+                }
+
+                await Task.WhenAll(prefetchTasks);
+                _logger.LogInformation("✅ SMART PREFETCH COMPLETE: {TaskCount} ranges prefetched", prefetchTasks.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ SMART PREFETCH FAILED");
+            }
+        }
+
+        public async Task StartBackgroundPrefetchingAsync()
+        {
+            if (_isPrefetchingActive)
+            {
+                _logger.LogWarning("⚠️ Background prefetching already active");
+                return;
+            }
+
+            _isPrefetchingActive = true;
+            _prefetchCancellationToken = new CancellationTokenSource();
+            
+            _logger.LogInformation("🚀 Starting background prefetching system...");
+            
+            _backgroundPrefetchTask = Task.Run(async () =>
+            {
+                while (!_prefetchCancellationToken.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await ProcessPrefetchQueueAsync();
+                        await Task.Delay(_prefetchInterval, _prefetchCancellationToken.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ Background prefetching error");
+                        await Task.Delay(TimeSpan.FromSeconds(10), _prefetchCancellationToken.Token);
+                    }
+                }
+            }, _prefetchCancellationToken.Token);
+        }
+
+        public async Task StopBackgroundPrefetchingAsync()
+        {
+            if (!_isPrefetchingActive)
+            {
+                return;
+            }
+
+            _logger.LogInformation("🛑 Stopping background prefetching...");
+            _isPrefetchingActive = false;
+            _prefetchCancellationToken.Cancel();
+
+            if (_backgroundPrefetchTask != null)
+            {
+                await _backgroundPrefetchTask;
+            }
+
+            _logger.LogInformation("✅ Background prefetching stopped");
+        }
+
+        public bool IsPrefetchingActive()
+        {
+            return _isPrefetchingActive;
+        }
+
+        public Dictionary<string, object> GetPrefetchStats()
+        {
+            return new Dictionary<string, object>
+            {
+                ["isActive"] = _isPrefetchingActive,
+                ["queueSize"] = _prefetchQueue.Count,
+                ["historyCount"] = _prefetchHistory.Count,
+                ["lastPrefetchTime"] = _lastPrefetchTime,
+                ["prefetchInterval"] = _prefetchInterval.TotalSeconds,
+                ["cacheSize"] = _rtpRangeCache.Count,
+                ["totalReelSetsLoaded"] = _totalReelSetsLoaded
+            };
+        }
+
+        private async Task ProcessPrefetchQueueAsync()
+        {
+            await _prefetchQueueLock.WaitAsync();
+            try
+            {
+                if (_prefetchQueue.Count == 0)
+                {
+                    return;
+                }
+
+                // Process up to 3 prefetch requests per cycle
+                var tasksToProcess = Math.Min(3, _prefetchQueue.Count);
+                var tasks = new List<Task>();
+
+                for (int i = 0; i < tasksToProcess; i++)
+                {
+                    if (_prefetchQueue.Count > 0)
+                    {
+                        var (minRtp, maxRtp, priority) = _prefetchQueue.Dequeue();
+                        tasks.Add(PrefetchRtpRangeAsync(minRtp, maxRtp, priority));
+                    }
+                }
+
+                if (tasks.Count > 0)
+                {
+                    await Task.WhenAll(tasks);
+                    _lastPrefetchTime = DateTime.UtcNow;
+                }
+            }
+            finally
+            {
+                _prefetchQueueLock.Release();
+            }
+        }
+
+        private (double min, double max) CalculateRtpRange(double centerRtp, double rangeSize)
+        {
+            var halfRange = rangeSize / 2;
+            return (Math.Max(0.01, centerRtp - halfRange), centerRtp + halfRange);
+        }
+
+        private List<(double min, double max)> CalculateRecoveryRanges(double currentRtp, double targetRtp)
+        {
+            var ranges = new List<(double min, double max)>();
+            
+            // Calculate ranges between current and target RTP
+            var step = (targetRtp - currentRtp) / 3;
+            for (int i = 1; i <= 3; i++)
+            {
+                var centerRtp = currentRtp + (step * i);
+                ranges.Add(CalculateRtpRange(centerRtp, _prefetchRangeSize));
+            }
+            
+            return ranges;
+        }
+
+        private List<(double min, double max)> CalculateAdjacentRanges(double currentRtp, double targetRtp)
+        {
+            var ranges = new List<(double min, double max)>();
+            
+            // Add ranges slightly above and below current RTP
+            ranges.Add(CalculateRtpRange(currentRtp + _prefetchRangeSize, _prefetchRangeSize));
+            ranges.Add(CalculateRtpRange(currentRtp - _prefetchRangeSize, _prefetchRangeSize));
+            
+            // Add ranges around target RTP
+            ranges.Add(CalculateRtpRange(targetRtp + _prefetchRangeSize, _prefetchRangeSize));
+            ranges.Add(CalculateRtpRange(targetRtp - _prefetchRangeSize, _prefetchRangeSize));
+            
+            return ranges;
+        }
+
+        #endregion
     }
 }

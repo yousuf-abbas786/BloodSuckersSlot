@@ -370,121 +370,100 @@ namespace BloodSuckersSlot.Api.Controllers
             return (result, grid, chosenSet, winningLines);
         }
 
-        // SIMPLIFIED RTP RECOVERY LOGIC: More effective and easier to understand
+        // 🎯 BALANCED RTP RECOVERY WITH NATURAL VOLATILITY
         private ReelSet SelectOptimalReelSet(List<ReelSet> reelSets, double currentRtp, double currentHitRate, double currentVolatility, GameConfig config)
         {
             if (!reelSets.Any()) return null;
             
-            // Track consecutive low RTP spins for recovery boost
-            if (currentRtp < config.RtpTarget * 0.9) // Track when below 90% of target
-                _consecutiveLowRtpSpins++;
-            else
-                _consecutiveLowRtpSpins = 0;
-                
-            // Track consecutive high RTP spins for reduction
-            if (currentRtp > config.RtpTarget * 1.1)
-                _consecutiveHighRtpSpins++;
-            else
-                _consecutiveHighRtpSpins = 0;
-
-            // ULTRA AGGRESSIVE LOGIC: Force RTP recovery when significantly below target
-            bool needHigherRtp = currentRtp < config.RtpTarget * 0.98; // Below 98% of target (86.24%)
-            bool needLowerRtp = currentRtp > config.RtpTarget * 1.02; // Above 102% of target (89.76%)
-            
-            // EMERGENCY RECOVERY: Force high RTP after just 2 consecutive low RTP spins
-            bool recoveryBoost = _consecutiveLowRtpSpins >= 2;
-            if (recoveryBoost)
+            // 🚨 EMERGENCY RECOVERY: Only when RTP is critically low (< 70% of target)
+            if (currentRtp < config.RtpTarget * 0.7) // Below 61.6%
             {
-                Console.WriteLine($"🚀 EMERGENCY RECOVERY BOOST: {_consecutiveLowRtpSpins} consecutive low RTP spins");
-                needHigherRtp = true;
-                needLowerRtp = false;
+                Console.WriteLine($"🚨 EMERGENCY RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.7:P2} - FORCING HIGH RTP");
+                
+                var emergencySets = reelSets
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1) // 96.8% minimum
+                    .OrderByDescending(r => r.ExpectedRtp)
+                    .Take(50) // Limit for variety
+                    .ToList();
+                
+                if (emergencySets.Any())
+                {
+                    Console.WriteLine($"🚨 EMERGENCY: Using {emergencySets.Count} high RTP reel sets");
+                    return ChooseWeightedByCombinedScore(emergencySets);
+                }
             }
             
-            // ULTRA EMERGENCY: If RTP is below 85% of target, force immediate recovery
-            if (currentRtp < config.RtpTarget * 0.85) // Below 74.8%
+            // 📈 RECOVERY MODE: When RTP is below target but not critical
+            else if (currentRtp < config.RtpTarget) // Below 88%
             {
-                Console.WriteLine($"🚨 ULTRA EMERGENCY: RTP {currentRtp:P2} < {config.RtpTarget * 0.85:P2} - FORCING IMMEDIATE RECOVERY");
-                needHigherRtp = true;
-                needLowerRtp = false;
-            }
-            
-            // EMERGENCY RTP REDUCTION: Force dramatic drops after 5 consecutive high RTP spins
-            bool emergencyReduction = _consecutiveHighRtpSpins >= 5;
-            if (emergencyReduction)
-            {
-                Console.WriteLine($"🚨 EMERGENCY RTP REDUCTION: {_consecutiveHighRtpSpins} consecutive high RTP spins");
-                needLowerRtp = true;
-                needHigherRtp = false;
-            }
-             
-            // SIMPLIFIED REEL SET SELECTION: Clear and effective
-            var candidateSets = new List<ReelSet>();
-            
-            if (needHigherRtp)
-            {
-                // ULTRA AGGRESSIVE RTP RECOVERY: Use very high RTP reel sets
-                double minRtpThreshold;
+                Console.WriteLine($"📈 RECOVERY MODE: RTP {currentRtp:P2} < Target {config.RtpTarget:P2}");
                 
-                if (currentRtp < config.RtpTarget * 0.85) // Very low RTP (< 74.8%)
-                {
-                    minRtpThreshold = config.RtpTarget * 0.95; // Use reel sets with RTP > 95% of target (83.6%)
-                    Console.WriteLine($"🚨 ULTRA LOW RTP: {currentRtp:P2} < {config.RtpTarget * 0.85:P2} - FORCING HIGH RTP REEL SETS");
-                }
-                else if (currentRtp < config.RtpTarget * 0.9) // Low RTP (< 79.2%)
-                {
-                    minRtpThreshold = config.RtpTarget * 0.9; // Use reel sets with RTP > 90% of target (79.2%)
-                    Console.WriteLine($"⚠️ LOW RTP: {currentRtp:P2} < {config.RtpTarget * 0.9:P2} - AGGRESSIVE RECOVERY");
-                }
-                else // Near target RTP (79.2% - 98%)
-                {
-                    minRtpThreshold = config.RtpTarget * 0.85; // Use reel sets with RTP > 85% of target (74.8%)
-                    Console.WriteLine($"📈 RTP RECOVERY: {currentRtp:P2} < {config.RtpTarget * 0.98:P2} - TARGETED RECOVERY");
-                }
+                // Calculate recovery strength based on how far below target
+                double recoveryStrength = (config.RtpTarget - currentRtp) / config.RtpTarget; // 0.0 to 1.0
+                double minRtpThreshold = config.RtpTarget * (0.9 + recoveryStrength * 0.3); // 79.2% to 88%
                 
-                var rtpCandidates = reelSets
+                var recoverySets = reelSets
                     .Where(r => r.ExpectedRtp >= minRtpThreshold)
-                    .OrderByDescending(r => r.ExpectedRtp) // Prefer higher RTP for recovery
-                    .Take(config.MaxCandidatesPerCategory * 3) // Triple the candidates for maximum variety
+                    .OrderByDescending(r => r.ExpectedRtp)
+                    .Take(100) // More variety for natural recovery
                     .ToList();
                 
-                if (rtpCandidates.Any())
+                if (recoverySets.Any())
                 {
-                    candidateSets.AddRange(rtpCandidates);
-                    Console.WriteLine($"📈 RTP RECOVERY: Selected {rtpCandidates.Count} high RTP reel sets (min: {minRtpThreshold:P2})");
-                }
-                else
-                {
-                    Console.WriteLine($"❌ NO HIGH RTP CANDIDATES: No reel sets found with RTP >= {minRtpThreshold:P2}");
+                    Console.WriteLine($"📈 RECOVERY: Using {recoverySets.Count} reel sets (min: {minRtpThreshold:P2})");
+                    return ChooseWeightedByCombinedScore(recoverySets);
                 }
             }
-            else if (needLowerRtp)
+            
+            // 📉 REDUCTION MODE: When RTP is significantly above target
+            else if (currentRtp > config.RtpTarget * 1.15) // Above 101.2%
             {
-                // RTP REDUCTION: Use low RTP reel sets
-                double maxRtpThreshold = config.RtpTarget * 0.7; // Use reel sets with RTP < 70% of target
+                Console.WriteLine($"📉 REDUCTION MODE: RTP {currentRtp:P2} > {config.RtpTarget * 1.15:P2}");
                 
-                var lowRtpCandidates = reelSets
-                    .Where(r => r.ExpectedRtp <= maxRtpThreshold)
-                    .OrderBy(r => r.ExpectedRtp) // Prefer lowest RTP for fastest reduction
-                    .Take(config.MaxCandidatesPerCategory * 2)
+                var reductionSets = reelSets
+                    .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.9) // 79.2% maximum
+                    .OrderBy(r => r.ExpectedRtp)
+                    .Take(100)
                     .ToList();
                 
-                if (lowRtpCandidates.Any())
+                if (reductionSets.Any())
                 {
-                    candidateSets.AddRange(lowRtpCandidates);
-                    Console.WriteLine($"📉 RTP REDUCTION: Selected {lowRtpCandidates.Count} low RTP reel sets");
+                    Console.WriteLine($"📉 REDUCTION: Using {reductionSets.Count} low RTP reel sets");
+                    return ChooseWeightedByCombinedScore(reductionSets);
                 }
             }
-
-            // FALLBACK: If no specific candidates found, use all reel sets
-            if (!candidateSets.Any())
+            
+            // 🎯 NATURAL VOLATILITY MODE: RTP is in healthy range (70% - 115% of target)
+            else
             {
-                candidateSets = reelSets.ToList();
-                Console.WriteLine($"⚖️ BALANCED SELECTION: Using all {reelSets.Count} reel sets");
+                Console.WriteLine($"🎯 NATURAL VOLATILITY: RTP {currentRtp:P2} in healthy range");
+                
+                // Use volatility to determine RTP range preference
+                double volatilityFactor = Math.Max(0.1, Math.Min(2.0, currentVolatility));
+                
+                // Calculate preferred RTP range based on volatility
+                double centerRtp = config.RtpTarget;
+                double rangeWidth = config.RtpTarget * 0.3 * volatilityFactor; // 0.3 * volatility
+                
+                double minPreferredRtp = Math.Max(0.05, centerRtp - rangeWidth);
+                double maxPreferredRtp = Math.Min(3.0, centerRtp + rangeWidth);
+                
+                var volatilitySets = reelSets
+                    .Where(r => r.ExpectedRtp >= minPreferredRtp && r.ExpectedRtp <= maxPreferredRtp)
+                    .OrderByDescending(r => r.ExpectedRtp)
+                    .Take(150) // Maximum variety for natural volatility
+                    .ToList();
+                
+                if (volatilitySets.Any())
+                {
+                    Console.WriteLine($"🎯 VOLATILITY: Using {volatilitySets.Count} reel sets (range: {minPreferredRtp:P2}-{maxPreferredRtp:P2})");
+                    return ChooseWeightedByCombinedScore(volatilitySets);
+                }
             }
-
-            // Remove duplicates and select using weighted random selection
-            candidateSets = candidateSets.Distinct().ToList();
-            return ChooseWeightedByCombinedScore(candidateSets);
+            
+            // 🔄 FALLBACK: Use all available reel sets with balanced selection
+            Console.WriteLine($"🔄 FALLBACK: Using all {reelSets.Count} reel sets for balanced selection");
+            return ChooseWeightedByCombinedScore(reelSets);
         }
 
         // NEW: Volatility calculation based on recent win patterns
