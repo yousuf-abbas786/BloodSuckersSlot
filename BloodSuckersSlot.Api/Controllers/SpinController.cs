@@ -461,7 +461,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? playerId;
                     currentSession = new PlayerSessionResponse
                     {
-                        SessionId = Guid.NewGuid().ToString(),
+                        SessionId = ObjectId.GenerateNewId().ToString(),
                         PlayerId = playerId,
                         Username = username,
                         SessionStart = DateTime.UtcNow,

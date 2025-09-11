@@ -75,18 +75,34 @@ namespace BloodSuckersSlot.Api.Services
         {
             try
             {
+                // 🔍 DEBUG: First check if ANY session exists for this player (active or inactive)
+                var anySession = await _sessionCollection
+                    .Find(s => s.PlayerId == playerId)
+                    .FirstOrDefaultAsync();
+
+                if (anySession != null)
+                {
+                    _logger.LogInformation("🔍 DEBUG: Found session for player {PlayerId}: SessionId={SessionId}, IsActive={IsActive}, Spins={Spins}, RTP={RTP:P2}", 
+                        playerId, anySession.Id, anySession.IsActive, anySession.TotalSpins, anySession.TotalRtp);
+                }
+                else
+                {
+                    _logger.LogWarning("❌ DEBUG: No session found at all for player {PlayerId}", playerId);
+                }
+
+                // Now look for active session
                 var session = await _sessionCollection
                     .Find(s => s.PlayerId == playerId && s.IsActive)
                     .FirstOrDefaultAsync();
 
                 if (session != null)
                 {
-                    _logger.LogInformation("🔍 Retrieved session {SessionId}: Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}, Bet={Bet:C}, Win={Win:C}", 
+                    _logger.LogInformation("🔍 Retrieved ACTIVE session {SessionId}: Spins={Spins}, RTP={RTP:P2}, HitRate={HitRate:P2}, Bet={Bet:C}, Win={Win:C}", 
                         session.Id, session.TotalSpins, session.TotalRtp, session.HitRate, session.TotalBet, session.TotalWin);
                 }
                 else
                 {
-                    _logger.LogWarning("❌ No active session found for player {PlayerId}", playerId);
+                    _logger.LogWarning("❌ No ACTIVE session found for player {PlayerId}", playerId);
                 }
 
                 return session != null ? MapToResponse(session) : null;

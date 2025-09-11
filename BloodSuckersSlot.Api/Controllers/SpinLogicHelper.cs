@@ -568,6 +568,17 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
+        // 🚀 CRITICAL FIX: Sync SpinLogicHelper with existing session data
+        public void SyncWithSessionData(double totalBet, double totalWin, int totalSpins, int winningSpins)
+        {
+            _totalBet = totalBet;
+            _totalWin = totalWin;
+            spinCounter = totalSpins;
+            _hitCount = winningSpins;
+            
+            Console.WriteLine($"🔄 SYNC: Updated SpinLogicHelper - Bet={_totalBet:F2}, Win={_totalWin:F2}, Spins={spinCounter}, Hits={_hitCount}");
+        }
+
         // NEW: Weighted selection using combined scores
         private ReelSet ChooseWeightedByCombinedScore(List<ReelSet> sets)
         {

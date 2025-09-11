@@ -34,8 +34,38 @@ namespace BloodSuckersSlot.Api.Services
             var session = _playerSessions.GetOrAdd(playerId, id =>
             {
                 _logger.LogInformation($"🎯 CREATED NEW PLAYER SESSION: {id}");
-                // Create SpinLogicHelper directly without DI resolution for speed
-                return new SpinLogicHelper(_loggerFactory.CreateLogger<SpinLogicHelper>());
+                var spinLogicHelper = new SpinLogicHelper(_loggerFactory.CreateLogger<SpinLogicHelper>());
+                
+                // 🚀 CRITICAL FIX: Load existing session data from database
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var playerSessionService = scope.ServiceProvider.GetRequiredService<IPlayerSessionService>();
+                    var existingSession = playerSessionService.GetActiveSessionAsync(id).Result;
+                    
+                    if (existingSession != null)
+                    {
+                        // Sync SpinLogicHelper with existing session data
+                        spinLogicHelper.SyncWithSessionData(
+                            (double)existingSession.TotalBet,
+                            (double)existingSession.TotalWin,
+                            existingSession.TotalSpins,
+                            existingSession.WinningSpins
+                        );
+                        
+                        _logger.LogInformation($"🔄 LOADED EXISTING SESSION DATA: Player={id}, RTP={existingSession.TotalRtp:P2}, HitRate={existingSession.HitRate:P2}, Spins={existingSession.TotalSpins}");
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"🆕 NO EXISTING SESSION FOUND: Player={id} - Starting fresh");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"❌ FAILED TO LOAD SESSION DATA: Player={id} - Starting fresh");
+                }
+                
+                return spinLogicHelper;
             });
             
             // Update last activity time
