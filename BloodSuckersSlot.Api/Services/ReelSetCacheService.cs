@@ -187,13 +187,13 @@ namespace BloodSuckersSlot.Api.Services
                 };
                 
                 _logger.LogInformation("📊 Preloading {RangeCount} essential RTP ranges with {SetsPerRange} sets each", 
-                    essentialRanges.Count, 5000);
+                    essentialRanges.Count, 8333);
                 
                 var tasks = essentialRanges.Select(async range =>
                 {
                     var (min, max) = range;
                     var rangeStartTime = DateTime.UtcNow;
-                    await GetReelSetsForRtpRangeAsync(min, max, 5000); // Load 5000 sets per range (30,000 total)
+                    await GetReelSetsForRtpRangeAsync(min, max, 8333); // Load 8333 sets per range (50,000 total)
                     var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
                     _logger.LogDebug("✅ Range {Min:F2}-{Max:F2} loaded in {Time:F2}ms", min, max, rangeTime);
                 }).ToArray();
@@ -203,7 +203,7 @@ namespace BloodSuckersSlot.Api.Services
                 var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
                 _logger.LogInformation("✅ PRELOAD COMPLETE: {RangeCount} ranges loaded in {TotalTime:F0}ms", 
                     _rtpRangeCache.Count, totalTime);
-                _logger.LogInformation("🎯 READY FOR ULTRA-FAST SPINS! Total reel sets cached: {TotalSets} (30,000 target)", _totalReelSetsLoaded);
+                _logger.LogInformation("🎯 READY FOR ULTRA-FAST SPINS! Total reel sets cached: {TotalSets} (50,000 target)", _totalReelSetsLoaded);
             }
             catch (Exception ex)
             {

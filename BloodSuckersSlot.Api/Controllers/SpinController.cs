@@ -118,6 +118,9 @@ namespace BloodSuckersSlot.Api.Controllers
         {
             if (!allReelSets.Any()) return allReelSets;
             
+            _logger.LogInformation($"🔍 RECOVERY DEBUG: Input RTP: {currentRtp:P2}, Target: {config.RtpTarget:P2}");
+            _logger.LogInformation($"🔍 RECOVERY DEBUG: Available reel sets: {allReelSets.Count}");
+            
             var optimalSets = new List<ReelSet>();
             
             // 🚨 EMERGENCY RECOVERY: RTP critically low (< 50% of target)
@@ -677,9 +680,38 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
                 }
                 
-                // 🎯 SMART REEL SET SELECTION: Pick BEST reel sets based on current RTP/Hit Rate
+                // 🎯 BRUTAL RTP RECOVERY: Force high RTP when current RTP is low
                 List<ReelSet> allReelSets = GetInstantReelSets();
-                List<ReelSet> reelSets = SelectOptimalReelSetsForRecovery(allReelSets, currentRtp, currentHitRate, _config);
+                List<ReelSet> reelSets;
+                
+                if (currentRtp < _config.RtpTarget * 0.3) // Below 26.4%
+                {
+                    _logger.LogInformation($"🚨 BRUTAL RECOVERY: RTP {currentRtp:P2} < {_config.RtpTarget * 0.3:P2} - FORCING HIGH RTP ONLY!");
+                    
+                    // BRUTAL: Use ONLY reel sets with RTP >= 150% of target
+                    reelSets = allReelSets
+                        .Where(r => r.ExpectedRtp >= _config.RtpTarget * 1.5) // 132%+ minimum
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(200)
+                        .ToList();
+                    
+                    if (!reelSets.Any())
+                    {
+                        _logger.LogWarning($"⚠️ NO HIGH RTP SETS FOUND! Using any sets with RTP >= 120%");
+                        reelSets = allReelSets
+                            .Where(r => r.ExpectedRtp >= _config.RtpTarget * 1.2) // 105.6%+ minimum
+                            .OrderByDescending(r => r.ExpectedRtp)
+                            .Take(200)
+                            .ToList();
+                    }
+                    
+                    _logger.LogInformation($"🚨 BRUTAL RECOVERY: Using {reelSets.Count} high RTP sets (min: {_config.RtpTarget * 1.5:P2})");
+                }
+                else
+                {
+                    // Normal filtering for higher RTP
+                    reelSets = SelectOptimalReelSetsForRecovery(allReelSets, currentRtp, currentHitRate, _config);
+                }
                 
                 var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;

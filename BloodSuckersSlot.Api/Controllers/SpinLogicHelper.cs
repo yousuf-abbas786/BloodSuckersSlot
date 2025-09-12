@@ -375,21 +375,73 @@ namespace BloodSuckersSlot.Api.Controllers
         {
             if (!reelSets.Any()) return null;
             
-            // 🚨 EMERGENCY RECOVERY: Only when RTP is critically low (< 70% of target)
-            if (currentRtp < config.RtpTarget * 0.7) // Below 61.6%
+            // 🚀 CRITICAL FIX: If reel sets are already pre-filtered by SelectOptimalReelSetsForRecovery,
+            // use them directly instead of applying additional filtering that might override the aggressive recovery!
+            
+            // Check if we have a reasonable number of reel sets (indicating pre-filtering worked)
+            if (reelSets.Count >= 50 && reelSets.Count <= 500)
             {
-                Console.WriteLine($"🚨 EMERGENCY RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.7:P2} - FORCING HIGH RTP");
+                Console.WriteLine($"🎯 USING PRE-FILTERED REEL SETS: {reelSets.Count} sets already optimized for RTP recovery");
+                Console.WriteLine($"🎯 PRE-FILTERED RTP RANGE: {reelSets.Min(r => r.ExpectedRtp):P2} - {reelSets.Max(r => r.ExpectedRtp):P2}");
+                
+                // Use weighted selection from pre-filtered sets
+                return ChooseWeightedByCombinedScore(reelSets);
+            }
+            
+            // Only apply additional filtering if we have too many or too few reel sets
+            Console.WriteLine($"⚠️ LARGE REEL SET COLLECTION: {reelSets.Count} sets - applying additional filtering");
+            
+            // 🚨 ULTRA EMERGENCY RECOVERY: When RTP is extremely low (< 20% of target)
+            if (currentRtp < config.RtpTarget * 0.2) // Below 17.6%
+            {
+                Console.WriteLine($"🚨 ULTRA EMERGENCY RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.2:P2} - FORCING ULTRA HIGH RTP");
+                
+                var ultraEmergencySets = reelSets
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.8) // 158.4% minimum - ULTRA AGGRESSIVE!
+                    .OrderByDescending(r => r.ExpectedRtp)
+                    .Take(200) // Even more sets for better recovery
+                    .ToList();
+                
+                if (ultraEmergencySets.Any())
+                {
+                    Console.WriteLine($"🚨 ULTRA EMERGENCY: Using {ultraEmergencySets.Count} ultra-high RTP reel sets");
+                    return ChooseWeightedByCombinedScore(ultraEmergencySets);
+                }
+            }
+            
+            // 🚨 EMERGENCY RECOVERY: When RTP is critically low (< 40% of target)
+            else if (currentRtp < config.RtpTarget * 0.4) // Below 35.2%
+            {
+                Console.WriteLine($"🚨 EMERGENCY RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.4:P2} - FORCING HIGH RTP");
                 
                 var emergencySets = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1) // 96.8% minimum
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.5) // 132% minimum
                     .OrderByDescending(r => r.ExpectedRtp)
-                    .Take(50) // Limit for variety
+                    .Take(200) // More sets for better recovery
                     .ToList();
                 
                 if (emergencySets.Any())
                 {
                     Console.WriteLine($"🚨 EMERGENCY: Using {emergencySets.Count} high RTP reel sets");
                     return ChooseWeightedByCombinedScore(emergencySets);
+                }
+            }
+            
+            // 📈 AGGRESSIVE RECOVERY: When RTP is low (< 60% of target)
+            else if (currentRtp < config.RtpTarget * 0.6) // Below 52.8%
+            {
+                Console.WriteLine($"📈 AGGRESSIVE RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.6:P2} - FORCING GOOD RTP");
+                
+                var aggressiveSets = reelSets
+                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2) // 105.6% minimum
+                    .OrderByDescending(r => r.ExpectedRtp)
+                    .Take(250) // More sets for variety
+                    .ToList();
+                
+                if (aggressiveSets.Any())
+                {
+                    Console.WriteLine($"📈 AGGRESSIVE: Using {aggressiveSets.Count} good RTP reel sets");
+                    return ChooseWeightedByCombinedScore(aggressiveSets);
                 }
             }
             
