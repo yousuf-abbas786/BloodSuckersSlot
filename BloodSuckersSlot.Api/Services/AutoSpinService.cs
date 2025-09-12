@@ -208,7 +208,10 @@ namespace BloodSuckersSlot.Api.Services
                                 IsFreeSpin = result.IsFreeSpin,
                                 IsBonusTriggered = result.BonusTriggered,
                                 FreeSpinsAwarded = result.FreeSpinsAwarded,
-                                CurrentBalance = currentSession.CurrentBalance
+                                CurrentBalance = currentSession.CurrentBalance,
+                                // 🚨 CRITICAL FIX: Pass the updated TotalSpins and WinningSpins from session
+                                TotalSpins = currentSession.TotalSpins,
+                                WinningSpins = currentSession.WinningSpins
                             };
 
                             await playerSessionService.UpdateSessionStatsAsync(updateRequest);

@@ -125,7 +125,7 @@ builder.Services.AddSingleton<IPlayerSpinSessionService, PlayerSpinSessionServic
 builder.Services.AddScoped<SpinLogicHelper>();
 
 // 🌍 GLOBAL RTP BALANCING: Register service for multiplayer RTP balancing
-builder.Services.AddScoped<IGlobalRtpBalancingService, GlobalRtpBalancingService>();
+builder.Services.AddSingleton<IGlobalRtpBalancingService, GlobalRtpBalancingService>();
 
 // 🚀 CRITICAL FIX: Register ReelSetCacheService as Singleton for performance
 builder.Services.AddSingleton<IReelSetCacheService, ReelSetCacheService>();
@@ -139,6 +139,9 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<AutoSp
 
 // Register PlayerSessionCleanupService
 builder.Services.AddHostedService<PlayerSessionCleanupService>();
+
+// 🌍 GLOBAL RTP BACKGROUND SERVICE: Update global RTP stats every 2 seconds
+builder.Services.AddHostedService<GlobalRtpUpdateService>();
 
 var app = builder.Build();
 

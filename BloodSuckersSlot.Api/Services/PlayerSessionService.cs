@@ -201,18 +201,16 @@ namespace BloodSuckersSlot.Api.Services
                     return false;
                 }
 
-                // Update session statistics
-                session.TotalSpins++;
+                // Update session statistics - use the passed values from SpinController
                 session.TotalBet += request.BetAmount;
                 session.TotalWin += request.WinAmount;
                 session.CurrentBalance = request.CurrentBalance;
                 session.LastActivity = DateTime.UtcNow;
                 session.UpdatedAt = DateTime.UtcNow;
-
-                if (request.IsWinningSpin)
-                {
-                    session.WinningSpins++;
-                }
+                
+                // 🚨 CRITICAL FIX: Use the TotalSpins and WinningSpins from the request (already updated by SpinController)
+                session.TotalSpins = request.TotalSpins;
+                session.WinningSpins = request.WinningSpins;
 
                 if (request.WinAmount > session.MaxWin)
                 {
@@ -233,9 +231,9 @@ namespace BloodSuckersSlot.Api.Services
                 session.TotalRtp = session.TotalBet > 0 ? (double)(session.TotalWin / session.TotalBet) : 0;
                 session.HitRate = session.TotalSpins > 0 ? (double)session.WinningSpins / session.TotalSpins : 0;
 
-                // Update in database
+                // Update in database (TotalSpins already incremented by SpinController, just sync to DB)
                 var update = Builders<PlayerSession>.Update
-                    .Set(s => s.TotalSpins, session.TotalSpins)
+                    .Set(s => s.TotalSpins, session.TotalSpins) // Sync the already incremented value
                     .Set(s => s.TotalBet, session.TotalBet)
                     .Set(s => s.TotalWin, session.TotalWin)
                     .Set(s => s.TotalRtp, session.TotalRtp)

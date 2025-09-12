@@ -75,6 +75,16 @@ namespace Shared.Models
         
         [BsonElement("updatedAt")]
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        
+        // 🚀 AGGRESSIVE RTP CORRECTION: Tracking fields for faster convergence
+        [BsonElement("firstAboveTargetTime")]
+        public DateTime? FirstAboveTargetTime { get; set; }
+        
+        [BsonElement("spinsAboveTarget")]
+        public int SpinsAboveTarget { get; set; } = 0;
+        
+        [BsonElement("lastRtpAdjustment")]
+        public double LastRtpAdjustment { get; set; } = 1.0;
     }
 
     /// <summary>
@@ -176,6 +186,10 @@ namespace Shared.Models
         public bool IsBonusTriggered { get; set; } = false;
         public int FreeSpinsAwarded { get; set; } = 0;
         public decimal CurrentBalance { get; set; }
+        
+        // 🚨 CRITICAL FIX: Add TotalSpins and WinningSpins to preserve session state
+        public int TotalSpins { get; set; }
+        public int WinningSpins { get; set; }
     }
 
     /// <summary>

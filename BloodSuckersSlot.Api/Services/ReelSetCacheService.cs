@@ -25,6 +25,9 @@ namespace BloodSuckersSlot.Api.Services
         Task StopBackgroundPrefetchingAsync();
         bool IsPrefetchingActive();
         Dictionary<string, object> GetPrefetchStats();
+        
+        // 🚀 ULTRA-FAST PARALLEL LOADING
+        Task<List<ReelSet>> LoadMultipleRtpRangesParallelAsync(List<(double min, double max)> ranges, int limitPerRange = 1000);
     }
 
     public class ReelSetCacheService : IReelSetCacheService
@@ -81,18 +84,18 @@ namespace BloodSuckersSlot.Api.Services
             _logger.LogInformation("📊 Performance Settings: MaxCache={MaxCache}, MaxReelSets={MaxReelSets}, PrefetchRanges={PrefetchRanges}", 
                 _maxCacheSize, _maxReelSetsPerRange, _prefetchRangeCount);
             
-            // 🚀 ASYNC PRELOAD: Start loading in background to keep API responsive
-            _logger.LogInformation("🔄 STARTING ASYNC PRELOAD - API remains responsive during loading...");
+            // 🚀 ULTRA-FAST MULTI-THREADED PRELOAD: Load all ranges with maximum thread utilization
+            _logger.LogInformation("🔄 STARTING ULTRA-FAST MULTI-THREADED PRELOAD - Spins disabled until complete...");
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await PreloadEssentialReelSetsAsync();
-                    _logger.LogInformation("✅ ASYNC PRELOAD COMPLETE - Service ready for spins!");
+                    _logger.LogInformation("✅ MULTI-THREADED PRELOAD COMPLETE - All reelsets loaded, spins now enabled!");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "❌ Async preload failed - Service may not be ready");
+                    _logger.LogError(ex, "❌ Multi-threaded preload failed - Service may not be ready");
                 }
             });
             
@@ -283,39 +286,48 @@ namespace BloodSuckersSlot.Api.Services
                 _logger.LogInformation("📊 Preloading {RangeCount} essential RTP ranges with {SetsPerRange} sets each", 
                     essentialRanges.Count, 2000);
                 
-                // 🚀 MULTI-THREADED LOADING: Load ranges in parallel for maximum speed
-                _logger.LogInformation("🚀 Starting multi-threaded loading of {RangeCount} ranges", essentialRanges.Count);
+                // 🚀 MAXIMUM THREAD UTILIZATION: Load ALL ranges simultaneously for maximum speed
+                _logger.LogInformation("🚀 MAXIMUM THREAD UTILIZATION: Loading ALL {RangeCount} ranges simultaneously", essentialRanges.Count);
                 
-                // Configure thread pool for optimal performance
-                ThreadPool.SetMinThreads(Environment.ProcessorCount * 2, Environment.ProcessorCount * 2);
-                ThreadPool.SetMaxThreads(Environment.ProcessorCount * 4, Environment.ProcessorCount * 4);
+                // 🚀 MAXIMUM THREAD POOL: Configure for absolute maximum performance
+                var processorCount = Environment.ProcessorCount;
+                ThreadPool.SetMinThreads(processorCount * 4, processorCount * 4);
+                ThreadPool.SetMaxThreads(processorCount * 8, processorCount * 8);
+                _logger.LogInformation("🔧 MAXIMUM Thread pool: Min={MinThreads}, Max={MaxThreads} (CPU cores: {Cores})", 
+                    processorCount * 4, processorCount * 8, processorCount);
                 
+                // 🚀 MAXIMUM PARALLELISM: Load ALL ranges simultaneously for maximum speed
                 var loadingTasks = essentialRanges.Select(async range =>
                 {
                     var (min, max) = range;
                     var rangeStartTime = DateTime.UtcNow;
-                    _logger.LogInformation("🔄 LOADING RANGE: {Min:F2}-{Max:F2} RTP", min, max);
                     
                     try
                     {
-                        await GetReelSetsForRtpRangeAsync(min, max, 2000); // Load 2000 sets per range (26,000 total)
-                        var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
-                        _logger.LogInformation("✅ RANGE LOADED: {Min:F2}-{Max:F2} in {Time:F2}ms", min, max, rangeTime);
+                        // 🚀 HIGH LIMITS: Use maximum limits for all ranges
+                        var limit = 2500; // High limit for all ranges
+                        await GetReelSetsForRtpRangeAsync(min, max, limit);
                         
-                        // Update progress
-                        var progress = (double)_rtpRangeCache.Count / essentialRanges.Count * 100;
-                        _logger.LogInformation("📊 LOADING PROGRESS: {Progress:F1}% ({LoadedRanges}/{TotalRanges} ranges)", 
-                            progress, _rtpRangeCache.Count, essentialRanges.Count);
+                        var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
+                        _logger.LogInformation("✅ RANGE LOADED: {Min:F2}-{Max:F2} ({Limit} sets) in {Time:F2}ms", 
+                            min, max, limit, rangeTime);
+                        
+                        return true;
                     }
                     catch (Exception ex)
                     {
                         var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
                         _logger.LogError(ex, "❌ FAILED RANGE: {Min:F2}-{Max:F2} after {Time:F2}ms", min, max, rangeTime);
+                        return false;
                     }
                 }).ToArray();
                 
-                // Wait for all ranges to complete
-                await Task.WhenAll(loadingTasks);
+                // Wait for ALL ranges to complete simultaneously
+                var allResults = await Task.WhenAll(loadingTasks);
+                var successfulRanges = allResults.Count(r => r);
+                
+                _logger.LogInformation("✅ MAXIMUM PARALLELISM COMPLETE: {SuccessfulRanges}/{TotalRanges} ranges loaded successfully", 
+                    successfulRanges, essentialRanges.Count);
                 
                 var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
                 _logger.LogInformation("✅ PRELOAD COMPLETE: {RangeCount} ranges loaded in {TotalTime:F0}ms", 
@@ -596,6 +608,48 @@ namespace BloodSuckersSlot.Api.Services
             ranges.Add(CalculateRtpRange(targetRtp - _prefetchRangeSize, _prefetchRangeSize));
             
             return ranges;
+        }
+
+        // 🚀 ULTRA-FAST PARALLEL LOADING: Load multiple ranges simultaneously
+        public async Task<List<ReelSet>> LoadMultipleRtpRangesParallelAsync(List<(double min, double max)> ranges, int limitPerRange = 1000)
+        {
+            var startTime = DateTime.UtcNow;
+            _logger.LogInformation("🚀 ULTRA-FAST PARALLEL LOADING: Loading {RangeCount} ranges with {LimitPerRange} sets each", 
+                ranges.Count, limitPerRange);
+            
+            // 🚀 MAXIMUM PARALLELISM: Load all ranges simultaneously
+            var loadingTasks = ranges.Select(async range =>
+            {
+                var (min, max) = range;
+                var rangeStartTime = DateTime.UtcNow;
+                
+                try
+                {
+                    var reelSets = await GetReelSetsForRtpRangeAsync(min, max, limitPerRange);
+                    var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
+                    
+                    _logger.LogDebug("✅ PARALLEL RANGE: {Min:F2}-{Max:F2} ({Count} sets) in {Time:F2}ms", 
+                        min, max, reelSets.Count, rangeTime);
+                    
+                    return reelSets;
+                }
+                catch (Exception ex)
+                {
+                    var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
+                    _logger.LogError(ex, "❌ PARALLEL RANGE FAILED: {Min:F2}-{Max:F2} after {Time:F2}ms", min, max, rangeTime);
+                    return new List<ReelSet>();
+                }
+            }).ToArray();
+            
+            // Wait for all ranges to complete
+            var allResults = await Task.WhenAll(loadingTasks);
+            var totalReelSets = allResults.SelectMany(r => r).ToList();
+            
+            var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogInformation("✅ PARALLEL LOADING COMPLETE: {TotalSets} reel sets from {RangeCount} ranges in {TotalTime:F2}ms", 
+                totalReelSets.Count, ranges.Count, totalTime);
+            
+            return totalReelSets;
         }
 
         #endregion

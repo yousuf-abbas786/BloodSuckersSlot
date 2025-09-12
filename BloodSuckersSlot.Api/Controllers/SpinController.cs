@@ -605,13 +605,31 @@ namespace BloodSuckersSlot.Api.Controllers
                     totalWin = globalStats.TotalWin,
                     lastUpdated = globalStats.LastUpdated,
                     globalDeviation = globalStats.AverageRtp - _config.RtpTarget,
-                    isBalanced = Math.Abs(globalStats.AverageRtp - _config.RtpTarget) <= _config.RtpTarget * 0.05 // Within 5% of target
+                    isBalanced = Math.Abs(globalStats.AverageRtp - _config.RtpTarget) <= _config.RtpTarget * 0.05, // Within 5% of target
+                    cacheAge = (DateTime.UtcNow - globalStats.LastUpdated).TotalSeconds,
+                    cacheStatus = (DateTime.UtcNow - globalStats.LastUpdated).TotalSeconds < 3 ? "Fresh" : "Stale"
                 });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting global RTP stats");
                 return StatusCode(500, new { error = "Failed to get global RTP stats" });
+            }
+        }
+
+        // 🔄 CACHE MANAGEMENT: Force refresh global RTP cache
+        [HttpPost("refresh-global-rtp")]
+        public async Task<IActionResult> RefreshGlobalRtpCache()
+        {
+            try
+            {
+                await _globalRtpBalancingService.ForceRefreshCacheAsync();
+                return Ok(new { message = "Global RTP cache refreshed successfully", timestamp = DateTime.UtcNow });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing global RTP cache");
+                return StatusCode(500, new { error = "Failed to refresh global RTP cache" });
             }
         }
 
@@ -742,8 +760,19 @@ namespace BloodSuckersSlot.Api.Controllers
                 // 🚀 TIMEOUT PROTECTION: Add timeout to prevent hanging
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_performanceSettings.SpinTimeoutSeconds));
                 
-                // 🚀 ULTRA-FAST SPIN: Get session from cache only - NO DATABASE CALLS!
+                // 🚨 CRITICAL FIX: Get session from cache, fallback to database if needed
                 PlayerSessionResponse? currentSession = await GetCachedSessionAsync(playerId);
+                
+                // 🚨 DEBUG: Log session state for debugging
+                if (currentSession != null)
+                {
+                    _logger.LogInformation("🎯 SESSION LOADED: Player {PlayerId}, Spins={Spins}, WinningSpins={WinningSpins}, HitRate={HitRate:P2}", 
+                        playerId, currentSession.TotalSpins, currentSession.WinningSpins, currentSession.HitRate);
+                }
+                else
+                {
+                    _logger.LogWarning("🚨 NO SESSION: Player {PlayerId} has no session", playerId);
+                }
                 
                 // If no cached session, create one in memory (will be persisted later)
                 if (currentSession == null && !string.IsNullOrEmpty(playerId))
@@ -851,8 +880,16 @@ namespace BloodSuckersSlot.Api.Controllers
                     currentSession.TotalRtp = currentSession.TotalBet > 0 ? (double)(currentSession.TotalWin / currentSession.TotalBet) : 0;
                     currentSession.HitRate = currentSession.TotalSpins > 0 ? (double)currentSession.WinningSpins / (double)currentSession.TotalSpins : 0;
                     
+                    // 🚨 DEBUG: Log updated session stats
+                    _logger.LogInformation("🔄 SESSION UPDATED: Player {PlayerId}, Spins={Spins}, WinningSpins={WinningSpins}, HitRate={HitRate:P2}, IsWinning={IsWinning}", 
+                        playerId, currentSession.TotalSpins, currentSession.WinningSpins, currentSession.HitRate, winningLines?.Count > 0);
+                    
                     // Update the cached session immediately
                     UpdateCachedSession(playerId, currentSession);
+                    
+                    // 🚨 DEBUG: Log what we're returning
+                    _logger.LogInformation("📤 RETURNING SESSION: Player {PlayerId}, Spins={Spins}, WinningSpins={WinningSpins}, HitRate={HitRate:P2}", 
+                        playerId, currentSession.TotalSpins, currentSession.WinningSpins, currentSession.HitRate);
                 }
                 
                 // 🚀 ASYNC DATABASE UPDATE: Fire-and-forget DB persistence (non-blocking)
@@ -860,15 +897,17 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? playerId;
                     
+                    // 🚀 PERFORMANCE FIX: Make DB saves asynchronous but with proper error handling
                     _ = Task.Run(async () =>
                     {
                         try
                         {
                             await PersistSessionToDatabaseAsync(currentSession, totalBet, monetaryPayout, result, winningLines?.Count > 0);
+                            _logger.LogDebug("✅ Session persisted to database for player {PlayerId}", playerId);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Error persisting session to database for player {PlayerId}", playerId);
+                            _logger.LogError(ex, "❌ CRITICAL: Failed to persist session to database for player {PlayerId}", playerId);
                         }
                     });
                 }
@@ -905,7 +944,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     rtp = actualRtp,
                     hitRate = actualHitRate,
                     winningLines = winningLines ?? new List<WinningLine>(),
-                    currentSession = currentSession,
+                    currentSession = currentSession, // 🚨 FIX: Return the UPDATED session (already updated above)
                     performance = new
                     {
                         spinTimeMs = totalTime,
@@ -1176,7 +1215,10 @@ namespace BloodSuckersSlot.Api.Controllers
                     IsFreeSpin = result.IsFreeSpin,
                     IsBonusTriggered = result.BonusTriggered,
                     FreeSpinsAwarded = result.FreeSpinsAwarded,
-                    CurrentBalance = session.CurrentBalance
+                    CurrentBalance = session.CurrentBalance,
+                    // 🚨 CRITICAL FIX: Pass the updated TotalSpins and WinningSpins from session
+                    TotalSpins = session.TotalSpins,
+                    WinningSpins = session.WinningSpins
                 };
 
                 await _playerSessionService.UpdateSessionStatsAsync(updateRequest);
