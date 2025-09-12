@@ -270,20 +270,20 @@ namespace BloodSuckersSlot.Api.Controllers
         {
             var ranges = new List<(double MinRtp, double MaxRtp)>();
             
-            // Primary range: Around current RTP
-            var currentRange = (Math.Max(0.05, currentRtp - 0.1), Math.Min(3.0, currentRtp + 0.1));
+            // Primary range: Around current RTP (CONTROLLED LIMITS)
+            var currentRange = (Math.Max(0.5, currentRtp - 0.1), Math.Min(1.2, currentRtp + 0.1)); // 50%-120% max
             ranges.Add(currentRange);
             
-            // Recovery range: Towards target RTP
+            // Recovery range: Towards target RTP (CONTROLLED LIMITS)
             if (currentRtp < targetRtp)
             {
-                var recoveryRange = (Math.Max(0.05, targetRtp - 0.15), Math.Min(3.0, targetRtp + 0.05));
+                var recoveryRange = (Math.Max(0.6, targetRtp - 0.15), Math.Min(1.1, targetRtp + 0.05)); // 60%-110% max
                 ranges.Add(recoveryRange);
             }
             
-            // Adjacent ranges for variety
-            var adjacent1 = (Math.Max(0.05, currentRtp - 0.2), Math.Max(0.05, currentRtp - 0.1));
-            var adjacent2 = (Math.Min(3.0, currentRtp + 0.1), Math.Min(3.0, currentRtp + 0.2));
+            // Adjacent ranges for variety (CONTROLLED LIMITS)
+            var adjacent1 = (Math.Max(0.5, currentRtp - 0.2), Math.Max(0.5, currentRtp - 0.1));
+            var adjacent2 = (Math.Min(1.2, currentRtp + 0.1), Math.Min(1.2, currentRtp + 0.2));
             
             if (adjacent1.Item1 < adjacent1.Item2) ranges.Add(adjacent1);
             if (adjacent2.Item1 < adjacent2.Item2) ranges.Add(adjacent2);
@@ -547,13 +547,12 @@ namespace BloodSuckersSlot.Api.Controllers
                 // Preload essential reel sets
                 await PreloadEssentialReelSetsAsync();
                 
-                // Preload common RTP ranges
+                // Preload common RTP ranges (CONTROLLED LIMITS)
                 var commonRanges = new List<(double min, double max)>
                 {
                     (0.5, 0.8),    // Low RTP
-                    (0.8, 1.2),    // Balanced RTP  
-                    (1.2, 1.8),    // High RTP
-                    (1.8, 3.0)     // Very high RTP
+                    (0.8, 1.0),    // Balanced RTP  
+                    (1.0, 1.2)     // High RTP (CONTROLLED - removed extreme ranges)
                 };
                 
                 var tasks = commonRanges.Select(async range =>
