@@ -23,6 +23,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly IPlayerSessionService _playerSessionService;
         private readonly IPlayerSpinSessionService _playerSpinSessionService;
         private readonly IReelSetCacheService _reelSetCacheService;
+        private readonly IGlobalRtpBalancingService _globalRtpBalancingService;
         
         // 🚀 SESSION CACHING for ultra-fast spins
         private readonly Dictionary<string, PlayerSessionResponse> _sessionCache = new();
@@ -37,7 +38,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly SemaphoreSlim _spinLogicCacheLock = new(1);
 
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
-            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService)
+            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService, IGlobalRtpBalancingService globalRtpBalancingService)
         {
             var startTime = DateTime.UtcNow;
             
@@ -47,6 +48,7 @@ namespace BloodSuckersSlot.Api.Controllers
             _playerSessionService = playerSessionService;
             _playerSpinSessionService = playerSpinSessionService;
             _reelSetCacheService = reelSetCacheService;
+            _globalRtpBalancingService = globalRtpBalancingService;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
             
             var initTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
@@ -113,118 +115,136 @@ namespace BloodSuckersSlot.Api.Controllers
             return emergencySets;
         }
         
-        // 🎯 SMART REEL SET SELECTION FORMULA: Pick BEST reel sets for RTP/Hit Rate recovery
-        private List<ReelSet> SelectOptimalReelSetsForRecovery(List<ReelSet> allReelSets, double currentRtp, double currentHitRate, GameConfig config)
+        // 🌍 GLOBAL RTP BALANCING: Select reel sets based on global multiplayer RTP balance
+        private async Task<List<ReelSet>> SelectOptimalReelSetsForGlobalBalanceAsync(List<ReelSet> allReelSets, double currentRtp, double currentHitRate, GameConfig config, string playerId)
         {
             if (!allReelSets.Any()) return allReelSets;
-            
-            _logger.LogInformation($"🔍 RECOVERY DEBUG: Input RTP: {currentRtp:P2}, Target: {config.RtpTarget:P2}");
-            _logger.LogInformation($"🔍 RECOVERY DEBUG: Available reel sets: {allReelSets.Count}");
-            
+
+            // Get global RTP statistics
+            var globalStats = await _globalRtpBalancingService.GetGlobalRtpStatsAsync();
+            var adjustmentFactor = await _globalRtpBalancingService.GetPlayerRtpAdjustmentFactorAsync(playerId);
+
+            _logger.LogInformation($"🌍 GLOBAL BALANCE: GlobalAvg={globalStats.AverageRtp:P2}, Target={config.RtpTarget:P2}, PlayerRTP={currentRtp:P2}, Factor={adjustmentFactor:F2}");
+
             var optimalSets = new List<ReelSet>();
-            
-            // 🚨 EMERGENCY RECOVERY: RTP critically low (< 50% of target)
-            if (currentRtp < config.RtpTarget * 0.5) // Below 44%
+
+            // Determine selection strategy based on global vs target RTP
+            if (globalStats.AverageRtp < config.RtpTarget * 0.95) // Global below 95% of target
             {
-                _logger.LogInformation($"🚨 EMERGENCY RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.5:P2}");
+                _logger.LogInformation($"📈 GLOBAL RECOVERY: Global RTP {globalStats.AverageRtp:P2} below target - boosting players");
                 
-                // Use ONLY very high RTP reel sets (120%+ of target)
-                optimalSets = allReelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2) // 105.6%+
-                    .OrderByDescending(r => r.ExpectedRtp)
-                    .Take(100)
-                    .ToList();
-                
-                _logger.LogInformation($"🚨 EMERGENCY: Selected {optimalSets.Count} ultra-high RTP reel sets");
-            }
-            
-            // 📈 ULTRA AGGRESSIVE RECOVERY: RTP low but not critical (50%-80% of target)
-            else if (currentRtp < config.RtpTarget * 0.8) // Below 70.4%
-            {
-                _logger.LogInformation($"📈 ULTRA AGGRESSIVE RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.8:P2}");
-                
-                // Use ONLY ultra-high RTP reel sets (130%+ of target) - NO COMPROMISE!
-                optimalSets = allReelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.3) // 114.4%+ minimum
-                    .OrderByDescending(r => r.ExpectedRtp) // Pure RTP priority
-                    .Take(100)
-                    .ToList();
-                
-                // If no ultra-high RTP sets, use high RTP sets (120%+)
-                if (!optimalSets.Any())
+                if (adjustmentFactor > 1.1) // Strong boost needed
                 {
+                    // Use high RTP reel sets for strong recovery
                     optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.2) // 105.6%+ minimum
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(100)
-                        .ToList();
-                }
-                
-                _logger.LogInformation($"📈 ULTRA AGGRESSIVE: Selected {optimalSets.Count} ultra-high RTP reel sets (min: {config.RtpTarget * 1.3:P2})");
-            }
-            
-            // 🎯 AGGRESSIVE BALANCED RECOVERY: RTP below target but recoverable (80%-100% of target)
-            else if (currentRtp < config.RtpTarget) // Below 88%
-            {
-                _logger.LogInformation($"🎯 AGGRESSIVE BALANCED RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget:P2}");
-                
-                // Use ONLY high RTP reel sets (110%+ of target) - Force recovery!
-                optimalSets = allReelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1) // 96.8%+ minimum
-                    .OrderByDescending(r => r.ExpectedRtp) // Pure RTP priority
-                    .Take(150)
-                    .ToList();
-                
-                // If no high RTP sets, use target+ reel sets (105%+)
-                if (!optimalSets.Any())
-                {
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.05) // 92.4%+ minimum
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1) // 96.8%+
                         .OrderByDescending(r => r.ExpectedRtp)
                         .Take(150)
                         .ToList();
+                    
+                    _logger.LogInformation($"🚀 STRONG BOOST: Selected {optimalSets.Count} high RTP reel sets");
+                }
+                else if (adjustmentFactor > 1.0) // Moderate boost needed
+                {
+                    // Use target+ RTP reel sets for moderate recovery
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.05) // 92.4%+
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(200)
+                        .ToList();
+                    
+                    _logger.LogInformation($"📈 MODERATE BOOST: Selected {optimalSets.Count} target+ RTP reel sets");
+                }
+                else
+                {
+                    // Use balanced RTP reel sets
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.9) // 79.2%+
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(250)
+                        .ToList();
+                    
+                    _logger.LogInformation($"🎯 BALANCED: Selected {optimalSets.Count} balanced RTP reel sets");
+                }
+            }
+            else if (globalStats.AverageRtp > config.RtpTarget * 1.05) // Global above 105% of target
+            {
+                _logger.LogInformation($"📉 GLOBAL REDUCTION: Global RTP {globalStats.AverageRtp:P2} above target - reducing players");
+                
+                if (adjustmentFactor < 0.9) // Strong reduction needed
+                {
+                    // Use lower RTP reel sets for strong reduction
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.8) // 70.4%-
+                        .OrderBy(r => r.ExpectedRtp)
+                        .Take(150)
+                        .ToList();
+                    
+                    _logger.LogInformation($"📉 STRONG REDUCTION: Selected {optimalSets.Count} low RTP reel sets");
+                }
+                else if (adjustmentFactor < 1.0) // Moderate reduction needed
+                {
+                    // Use balanced-low RTP reel sets for moderate reduction
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.9) // 79.2%-
+                        .OrderBy(r => r.ExpectedRtp)
+                        .Take(200)
+                        .ToList();
+                    
+                    _logger.LogInformation($"📉 MODERATE REDUCTION: Selected {optimalSets.Count} balanced-low RTP reel sets");
+                }
+                else
+                {
+                    // Use balanced RTP reel sets
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.8 && r.ExpectedRtp <= config.RtpTarget * 1.1) // 70.4%-96.8%
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(250)
+                        .ToList();
+                    
+                    _logger.LogInformation($"🎯 BALANCED: Selected {optimalSets.Count} balanced RTP reel sets");
+                }
+            }
+            else // Global RTP is in healthy range (95%-105% of target)
+            {
+                _logger.LogInformation($"🎯 GLOBAL BALANCED: Global RTP {globalStats.AverageRtp:P2} in healthy range - natural play");
+                
+                // Use natural volatility with slight adjustments
+                if (adjustmentFactor > 1.05) // Slight boost
+                {
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.95) // 83.6%+
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(300)
+                        .ToList();
+                }
+                else if (adjustmentFactor < 0.95) // Slight reduction
+                {
+                    optimalSets = allReelSets
+                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 1.05) // 92.4%-
+                        .OrderBy(r => r.ExpectedRtp)
+                        .Take(300)
+                        .ToList();
+                }
+                else
+                {
+                    // Use all reel sets for natural volatility
+                    optimalSets = allReelSets
+                        .OrderByDescending(r => r.ExpectedRtp)
+                        .Take(400)
+                        .ToList();
                 }
                 
-                _logger.LogInformation($"🎯 AGGRESSIVE BALANCED: Selected {optimalSets.Count} high RTP reel sets (min: {config.RtpTarget * 1.1:P2})");
+                _logger.LogInformation($"🎯 NATURAL PLAY: Selected {optimalSets.Count} reel sets for natural volatility");
             }
-            
-            // 📉 REDUCTION: RTP above target (100%+ of target)
-            else if (currentRtp > config.RtpTarget * 1.1) // Above 96.8%
-            {
-                _logger.LogInformation($"📉 RTP REDUCTION: RTP {currentRtp:P2} > {config.RtpTarget * 1.1:P2}");
-                
-                // Use lower RTP reel sets to bring it down
-                optimalSets = allReelSets
-                    .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.9) // 79.2% max
-                    .OrderByDescending(r => r.EstimatedHitRate) // Prefer good hit rates
-                    .Take(150)
-                    .ToList();
-                
-                _logger.LogInformation($"📉 REDUCTION: Selected {optimalSets.Count} lower RTP reel sets");
-            }
-            
-            // 🌊 NATURAL VOLATILITY: RTP in healthy range (88%-96.8%)
-            else
-            {
-                _logger.LogInformation($"🌊 NATURAL VOLATILITY: RTP {currentRtp:P2} in healthy range");
-                
-                // Use diverse reel sets for natural volatility
-                optimalSets = allReelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.7 && r.ExpectedRtp <= config.RtpTarget * 1.3)
-                    .OrderByDescending(r => CalculateReelSetScore(r, currentRtp, currentHitRate, config))
-                    .Take(300) // Maximum variety
-                    .ToList();
-                
-                _logger.LogInformation($"🌊 VOLATILITY: Selected {optimalSets.Count} diverse reel sets");
-            }
-            
-            // Fallback: If no optimal sets found, use all sets
+
+            // Fallback if no sets selected
             if (!optimalSets.Any())
             {
-                _logger.LogWarning("⚠️ NO OPTIMAL SETS: Using all available reel sets");
-                optimalSets = allReelSets.Take(200).ToList();
+                _logger.LogWarning("⚠️ NO OPTIMAL SETS: Using fallback selection");
+                optimalSets = allReelSets.Take(100).ToList();
             }
-            
+
             return optimalSets;
         }
         
@@ -474,9 +494,11 @@ namespace BloodSuckersSlot.Api.Controllers
                               User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
                               "anonymous";
 
-                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous")
+                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for anonymous users
+                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous" || playerId == "default")
                 {
-                    return BadRequest(new { error = "Player ID required for session preloading" });
+                    playerId = ObjectId.GenerateNewId().ToString();
+                    _logger.LogInformation("🆔 Generated new player ID for anonymous user: {PlayerId}", playerId);
                 }
 
                 // Preload the session into cache
@@ -563,6 +585,36 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
+        // 🌍 GLOBAL RTP STATISTICS: Get multiplayer RTP balance information
+        [HttpGet("global-rtp-stats")]
+        public async Task<IActionResult> GetGlobalRtpStats()
+        {
+            try
+            {
+                var globalStats = await _globalRtpBalancingService.GetGlobalRtpStatsAsync();
+                
+                return Ok(new
+                {
+                    totalPlayers = globalStats.TotalPlayers,
+                    averageRtp = globalStats.AverageRtp,
+                    minRtp = globalStats.MinRtp,
+                    maxRtp = globalStats.MaxRtp,
+                    targetRtp = _config.RtpTarget,
+                    totalSpins = globalStats.TotalSpins,
+                    totalBet = globalStats.TotalBet,
+                    totalWin = globalStats.TotalWin,
+                    lastUpdated = globalStats.LastUpdated,
+                    globalDeviation = globalStats.AverageRtp - _config.RtpTarget,
+                    isBalanced = Math.Abs(globalStats.AverageRtp - _config.RtpTarget) <= _config.RtpTarget * 0.05 // Within 5% of target
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting global RTP stats");
+                return StatusCode(500, new { error = "Failed to get global RTP stats" });
+            }
+        }
+
         [HttpGet("health")]
         public IActionResult Health()
         {
@@ -581,9 +633,41 @@ namespace BloodSuckersSlot.Api.Controllers
                 },
                 reelSetCache = new {
                     activeRanges = _reelSetCacheService.GetCacheSize(),
-                    totalReelSetsLoaded = _reelSetCacheService.GetTotalReelSetsLoaded()
+                    totalReelSetsLoaded = _reelSetCacheService.GetTotalReelSetsLoaded(),
+                    isFullyLoaded = _reelSetCacheService.IsFullyLoaded(),
+                    loadingProgress = _reelSetCacheService.GetLoadingProgress()
                 }
             });
+        }
+        
+        [HttpGet("loading-status")]
+        public IActionResult GetLoadingStatus()
+        {
+            try
+            {
+                var isLoaded = _reelSetCacheService.IsFullyLoaded();
+                var progress = _reelSetCacheService.GetLoadingProgress();
+                var cacheSize = _reelSetCacheService.GetCacheSize();
+                var totalSets = _reelSetCacheService.GetTotalReelSetsLoaded();
+                
+                var statusData = new
+                {
+                    isFullyLoaded = isLoaded,
+                    progress = progress,
+                    cacheSize = cacheSize,
+                    totalReelSetsLoaded = totalSets,
+                    status = isLoaded ? "ready" : "loading",
+                    message = isLoaded ? "Service ready for spins" : "Service is still loading reel sets",
+                    timestamp = DateTime.UtcNow
+                };
+                
+                return Ok(statusData);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Loading status check failed");
+                return StatusCode(500, new { error = "Loading status check failed", message = ex.Message });
+            }
         }
 
         // REMOVED: Old trigger-reload endpoint - no longer needed with lazy loading
@@ -596,6 +680,18 @@ namespace BloodSuckersSlot.Api.Controllers
                 var startTime = DateTime.UtcNow;
                 var stepTime = DateTime.UtcNow;
                 
+                // 🚨 CHECK LOADING STATUS: Block spins until reel sets are loaded
+                if (!_reelSetCacheService.IsFullyLoaded())
+                {
+                    var progress = _reelSetCacheService.GetLoadingProgress();
+                    _logger.LogWarning("⏳ SPIN BLOCKED: Reel sets still loading ({Progress}% complete)", progress);
+                    return StatusCode(503, new { 
+                        message = "Service is still loading reel sets. Please wait...", 
+                        progress = progress,
+                        status = "loading"
+                    });
+                }
+                
                 _logger.LogInformation("🎰 SPIN REQUEST STARTED: Player={PlayerId}, Level={Level}, CoinValue={CoinValue}", 
                     User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous", 
                     request.Level, request.CoinValue);
@@ -604,6 +700,13 @@ namespace BloodSuckersSlot.Api.Controllers
                 var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? 
                               User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
                               "anonymous";
+                
+                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for anonymous users
+                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous" || playerId == "default")
+                {
+                    playerId = ObjectId.GenerateNewId().ToString();
+                    _logger.LogInformation("🆔 Generated new player ID for anonymous user: {PlayerId}", playerId);
+                }
                 
                 var step1Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
@@ -680,38 +783,9 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
                 }
                 
-                // 🎯 BRUTAL RTP RECOVERY: Force high RTP when current RTP is low
+                // 🌍 GLOBAL RTP BALANCING: Use intelligent multiplayer balancing for all scenarios
                 List<ReelSet> allReelSets = GetInstantReelSets();
-                List<ReelSet> reelSets;
-                
-                if (currentRtp < _config.RtpTarget * 0.3) // Below 26.4%
-                {
-                    _logger.LogInformation($"🚨 BRUTAL RECOVERY: RTP {currentRtp:P2} < {_config.RtpTarget * 0.3:P2} - FORCING HIGH RTP ONLY!");
-                    
-                    // BRUTAL: Use ONLY reel sets with RTP >= 150% of target
-                    reelSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= _config.RtpTarget * 1.5) // 132%+ minimum
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(200)
-                        .ToList();
-                    
-                    if (!reelSets.Any())
-                    {
-                        _logger.LogWarning($"⚠️ NO HIGH RTP SETS FOUND! Using any sets with RTP >= 120%");
-                        reelSets = allReelSets
-                            .Where(r => r.ExpectedRtp >= _config.RtpTarget * 1.2) // 105.6%+ minimum
-                            .OrderByDescending(r => r.ExpectedRtp)
-                            .Take(200)
-                            .ToList();
-                    }
-                    
-                    _logger.LogInformation($"🚨 BRUTAL RECOVERY: Using {reelSets.Count} high RTP sets (min: {_config.RtpTarget * 1.5:P2})");
-                }
-                else
-                {
-                    // Normal filtering for higher RTP
-                    reelSets = SelectOptimalReelSetsForRecovery(allReelSets, currentRtp, currentHitRate, _config);
-                }
+                List<ReelSet> reelSets = await SelectOptimalReelSetsForGlobalBalanceAsync(allReelSets, currentRtp, currentHitRate, _config, playerId);
                 
                 var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
@@ -894,11 +968,23 @@ namespace BloodSuckersSlot.Api.Controllers
                     return BadRequest(new { error = "Invalid bet parameters" });
                 }
 
+                // Get player ID from JWT token (same as Spin endpoint)
+                var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? 
+                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
+                              "anonymous";
+                
+                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for anonymous users
+                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous" || playerId == "default")
+                {
+                    playerId = ObjectId.GenerateNewId().ToString();
+                    _logger.LogInformation("🆔 Generated new player ID for anonymous user: {PlayerId}", playerId);
+                }
+                
                 var autoSpinId = Guid.NewGuid().ToString();
                 var autoSpinSession = new Services.AutoSpinSession
                 {
                     Id = autoSpinId,
-                    PlayerId = request.PlayerId ?? "default",
+                    PlayerId = playerId,
                     SpinCount = request.SpinCount,
                     RemainingSpins = request.SpinCount,
                     SpinDelayMs = request.SpinDelayMs,

@@ -75,6 +75,19 @@ namespace BloodSuckersSlot.Api.Services
         {
             try
             {
+                // 🚨 VALIDATE PLAYER ID: Check if it's a valid MongoDB ObjectId
+                if (string.IsNullOrEmpty(playerId) || playerId == "default" || playerId == "anonymous")
+                {
+                    _logger.LogWarning("❌ Invalid player ID: {PlayerId} - cannot query MongoDB", playerId);
+                    return null;
+                }
+                
+                if (!ObjectId.TryParse(playerId, out _))
+                {
+                    _logger.LogWarning("❌ Player ID is not a valid MongoDB ObjectId: {PlayerId}", playerId);
+                    return null;
+                }
+                
                 // 🔍 DEBUG: First check if ANY session exists for this player (active or inactive)
                 var anySession = await _sessionCollection
                     .Find(s => s.PlayerId == playerId)
@@ -258,6 +271,18 @@ namespace BloodSuckersSlot.Api.Services
         {
             try
             {
+                // 🚨 VALIDATE PLAYER ID: Check if it's a valid MongoDB ObjectId
+                if (string.IsNullOrEmpty(playerId) || playerId == "default" || playerId == "anonymous")
+                {
+                    _logger.LogWarning("❌ Invalid player ID: {PlayerId} - cannot query MongoDB", playerId);
+                    return null;
+                }
+                
+                if (!ObjectId.TryParse(playerId, out _))
+                {
+                    _logger.LogWarning("❌ Player ID is not a valid MongoDB ObjectId: {PlayerId}", playerId);
+                    return null;
+                }
                 var stats = await _statsCollection
                     .Find(s => s.PlayerId == playerId)
                     .FirstOrDefaultAsync();
@@ -275,6 +300,18 @@ namespace BloodSuckersSlot.Api.Services
         {
             try
             {
+                // 🚨 VALIDATE PLAYER ID: Check if it's a valid MongoDB ObjectId
+                if (string.IsNullOrEmpty(playerId) || playerId == "default" || playerId == "anonymous")
+                {
+                    _logger.LogWarning("❌ Invalid player ID: {PlayerId} - cannot query MongoDB", playerId);
+                    return new List<PlayerSessionResponse>();
+                }
+                
+                if (!ObjectId.TryParse(playerId, out _))
+                {
+                    _logger.LogWarning("❌ Player ID is not a valid MongoDB ObjectId: {PlayerId}", playerId);
+                    return new List<PlayerSessionResponse>();
+                }
                 var skip = (pageNumber - 1) * pageSize;
                 var sessions = await _sessionCollection
                     .Find(s => s.PlayerId == playerId)

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using BloodSuckersSlot.Api.Services;
 using Shared.Models;
 using System.Security.Claims;
+using MongoDB.Bson;
 
 namespace BloodSuckersSlot.Api.Controllers
 {
@@ -68,6 +69,13 @@ namespace BloodSuckersSlot.Api.Controllers
                 if (string.IsNullOrEmpty(playerId))
                 {
                     return Unauthorized("Invalid user context");
+                }
+
+                // 🚨 FIX INVALID PLAYER ID: Handle invalid player IDs
+                if (playerId == "default" || playerId == "anonymous" || !ObjectId.TryParse(playerId, out _))
+                {
+                    _logger.LogWarning("❌ Invalid player ID in JWT token: {PlayerId} - returning not found", playerId);
+                    return NotFound("No active session found");
                 }
 
                 var session = await _playerSessionService.GetActiveSessionAsync(playerId);
@@ -211,6 +219,25 @@ namespace BloodSuckersSlot.Api.Controllers
                     return Unauthorized("Invalid user context");
                 }
 
+                // 🚨 FIX INVALID PLAYER ID: Handle invalid player IDs
+                if (playerId == "default" || playerId == "anonymous" || !ObjectId.TryParse(playerId, out _))
+                {
+                    _logger.LogWarning("❌ Invalid player ID in JWT token: {PlayerId} - returning empty stats", playerId);
+                    return Ok(new PlayerStatsResponse
+                    {
+                        PlayerId = playerId,
+                        Username = "Invalid User",
+                        TotalSessions = 0,
+                        TotalSpins = 0,
+                        TotalBet = 0,
+                        TotalWin = 0,
+                        LifetimeRtp = 0,
+                        LifetimeHitRate = 0,
+                        TotalWinningSpins = 0,
+                        LastSessionDate = null
+                    });
+                }
+
                 var stats = await _playerSessionService.GetPlayerStatsAsync(playerId);
                 if (stats == null)
                 {
@@ -238,6 +265,13 @@ namespace BloodSuckersSlot.Api.Controllers
                 if (string.IsNullOrEmpty(playerId))
                 {
                     return Unauthorized("Invalid user context");
+                }
+
+                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for invalid player IDs
+                if (playerId == "default" || playerId == "anonymous" || !ObjectId.TryParse(playerId, out _))
+                {
+                    _logger.LogWarning("❌ Invalid player ID in JWT token: {PlayerId} - returning empty sessions", playerId);
+                    return Ok(new List<PlayerSessionResponse>());
                 }
 
                 var sessions = await _playerSessionService.GetPlayerSessionsAsync(playerId, pageNumber, pageSize);

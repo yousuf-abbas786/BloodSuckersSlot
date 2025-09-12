@@ -124,6 +124,9 @@ builder.Services.AddScoped<IPlayerSessionService, PlayerSessionService>();
 builder.Services.AddSingleton<IPlayerSpinSessionService, PlayerSpinSessionService>();
 builder.Services.AddScoped<SpinLogicHelper>();
 
+// 🌍 GLOBAL RTP BALANCING: Register service for multiplayer RTP balancing
+builder.Services.AddScoped<IGlobalRtpBalancingService, GlobalRtpBalancingService>();
+
 // 🚀 CRITICAL FIX: Register ReelSetCacheService as Singleton for performance
 builder.Services.AddSingleton<IReelSetCacheService, ReelSetCacheService>();
 

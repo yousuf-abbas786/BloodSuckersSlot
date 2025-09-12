@@ -13,6 +13,11 @@ namespace BloodSuckersSlot.Api.Services
         int GetCacheSize();
         int GetTotalReelSetsLoaded();
         
+        // 🚨 LOADING STATUS METHODS
+        bool IsFullyLoaded();
+        Task WaitForLoadingCompleteAsync();
+        int GetLoadingProgress();
+        
         // Dynamic Prefetching Methods
         Task PrefetchRtpRangeAsync(double minRtp, double maxRtp, int priority = 1);
         Task PrefetchBasedOnPlayerTrendsAsync(double currentRtp, double targetRtp, int recentSpins = 10);
@@ -38,6 +43,10 @@ namespace BloodSuckersSlot.Api.Services
         // Background prefetching
         private readonly Dictionary<string, Task> _prefetchTasks = new();
         private readonly SemaphoreSlim _prefetchLock = new(1);
+        
+        // 🚨 LOADING STATUS: Block spins until fully loaded
+        private volatile bool _isFullyLoaded = false;
+        private readonly SemaphoreSlim _loadingSemaphore = new(1, 1);
         private int _prefetchRangeCount = 5;
         private double _prefetchRangeSize = 0.1;
         private DateTime _lastPrefetchTime = DateTime.MinValue;
@@ -68,16 +77,38 @@ namespace BloodSuckersSlot.Api.Services
             _prefetchInterval = TimeSpan.FromSeconds(_performanceSettings.PrefetchIntervalSeconds);
             
             var initTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            _logger.LogInformation("🚀 ReelSetCacheService initialized in {InitTime:F2}ms - ready for ultra-fast spins", initTime);
+            _logger.LogInformation("🚀 ReelSetCacheService initialized in {InitTime:F2}ms - starting async preload", initTime);
             _logger.LogInformation("📊 Performance Settings: MaxCache={MaxCache}, MaxReelSets={MaxReelSets}, PrefetchRanges={PrefetchRanges}", 
                 _maxCacheSize, _maxReelSetsPerRange, _prefetchRangeCount);
             
-            // Start background preload
-            _logger.LogInformation("🚀 Starting background preload in separate task...");
-            _ = Task.Run(async () => await PreloadEssentialReelSetsAsync());
+            // 🚀 ASYNC PRELOAD: Start loading in background to keep API responsive
+            _logger.LogInformation("🔄 STARTING ASYNC PRELOAD - API remains responsive during loading...");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await PreloadEssentialReelSetsAsync();
+                    _logger.LogInformation("✅ ASYNC PRELOAD COMPLETE - Service ready for spins!");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Async preload failed - Service may not be ready");
+                }
+            });
             
-            // Start dynamic prefetching system
-            _ = Task.Run(async () => await StartBackgroundPrefetchingAsync());
+            // Start background prefetching system after preload
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(2000); // Wait 2 seconds after preload starts
+                    await StartBackgroundPrefetchingAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Background prefetching failed");
+                }
+            });
         }
 
         public async Task<List<ReelSet>> GetReelSetsForRtpRangeAsync(double minRtp, double maxRtp, int limit = 1000)
@@ -142,6 +173,28 @@ namespace BloodSuckersSlot.Api.Services
                 _logger.LogInformation("✅ CACHE STORED: {Count} reel sets for RTP range {MinRtp:F2}-{MaxRtp:F2} | DB: {DbTime:F2}ms | Total: {TotalTime:F2}ms | Cache size: {CacheSize}", 
                     reelSets.Count, minRtp, maxRtp, dbTime, totalTime, _rtpRangeCache.Count);
                 
+                // 🚨 DEBUG: Log detailed information about loaded reel sets
+                if (reelSets.Any())
+                {
+                    var loadedMinRtp = reelSets.Min(r => r.ExpectedRtp);
+                    var loadedMaxRtp = reelSets.Max(r => r.ExpectedRtp);
+                    var loadedAvgRtp = reelSets.Average(r => r.ExpectedRtp);
+                    
+                    _logger.LogInformation("🔍 DEBUG LOADED REEL SETS: Count={Count}, MinRTP={MinRtp:P2}, MaxRTP={MaxRtp:P2}, AvgRTP={AvgRtp:P2}", 
+                        reelSets.Count, loadedMinRtp, loadedMaxRtp, loadedAvgRtp);
+                    
+                    // Log first 5 reel sets as samples
+                    foreach (var set in reelSets.Take(5))
+                    {
+                        _logger.LogInformation("🔍 SAMPLE REEL SET: Name={Name}, RTP={Rtp:P2}, HitRate={HitRate:P2}", 
+                            set.Name, set.ExpectedRtp, set.EstimatedHitRate);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ NO REEL SETS LOADED for range {MinRtp:F2}-{MaxRtp:F2}", minRtp, maxRtp);
+                }
+                
                 return reelSets;
             }
             finally
@@ -162,6 +215,33 @@ namespace BloodSuckersSlot.Api.Services
             }
             
             var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            
+            // 🚨 DEBUG: Log comprehensive information about instant reel sets
+            if (allReelSets.Any())
+            {
+                var minRtp = allReelSets.Min(r => r.ExpectedRtp);
+                var maxRtp = allReelSets.Max(r => r.ExpectedRtp);
+                var avgRtp = allReelSets.Average(r => r.ExpectedRtp);
+                var highRtpCount = allReelSets.Count(r => r.ExpectedRtp >= 0.9);
+                var ultraHighRtpCount = allReelSets.Count(r => r.ExpectedRtp >= 1.0);
+                
+                _logger.LogInformation("🔍 DEBUG INSTANT REEL SETS: Total={Total}, MinRTP={MinRtp:P2}, MaxRTP={MaxRtp:P2}, AvgRTP={AvgRtp:P2}", 
+                    allReelSets.Count, minRtp, maxRtp, avgRtp);
+                _logger.LogInformation("🔍 DEBUG HIGH RTP COUNTS: HighRTP(≥90%)={HighCount}, UltraHighRTP(≥100%)={UltraHighCount}", 
+                    highRtpCount, ultraHighRtpCount);
+                
+                // Log sample reel sets
+                foreach (var set in allReelSets.Take(10))
+                {
+                    _logger.LogInformation("🔍 INSTANT SAMPLE: Name={Name}, RTP={Rtp:P2}, HitRate={HitRate:P2}", 
+                        set.Name, set.ExpectedRtp, set.EstimatedHitRate);
+                }
+            }
+            else
+            {
+                _logger.LogError("🚨 CRITICAL: NO INSTANT REEL SETS AVAILABLE! Cache is empty!");
+            }
+            
             _logger.LogDebug("⚡ INSTANT REEL SETS: Retrieved {Count} reel sets from {CacheSize} cache ranges in {Time:F2}ms", 
                 allReelSets.Count, _rtpRangeCache.Count, totalTime);
             
@@ -175,35 +255,76 @@ namespace BloodSuckersSlot.Api.Services
                 _logger.LogInformation("🚀 PRELOADING ESSENTIAL REEL SETS for ultra-fast spins...");
                 var startTime = DateTime.UtcNow;
                 
-                // Pre-load the most commonly used RTP ranges
+                // Pre-load the most commonly used RTP ranges with focus on HIGH RTP for 88% target
                 var essentialRanges = new List<(double min, double max)>
                 {
-                    (0.05, 0.2),   // Very low RTP
-                    (0.2, 0.5),    // Low RTP  
-                    (0.5, 0.8),    // Medium-low RTP
-                    (0.8, 1.2),    // Balanced RTP
-                    (1.2, 1.8),    // High RTP
-                    (1.8, 3.0)     // Very high RTP
+                    // 🚀 ULTRA-HIGH RTP RANGES (Priority 1 - For recovery above 88% target)
+                    (1.20, 1.50),  // Ultra-high RTP (120%-150%) - Emergency recovery
+                    (1.10, 1.30),  // Very high RTP (110%-130%) - Aggressive recovery
+                    (1.00, 1.20),  // High RTP (100%-120%) - Strong recovery
+                    
+                    // 🎯 TARGET RTP RANGES (Priority 2 - Around 88% target)
+                    (0.90, 1.10),  // Target+ RTP (90%-110%) - Around target
+                    (0.85, 1.00),  // Good RTP (85%-100%) - Decent recovery
+                    (0.80, 0.95),  // Balanced RTP (80%-95%) - Normal play
+                    
+                    // 🔄 BALANCED RANGES (Priority 3 - Normal play)
+                    (0.70, 0.85),  // Lower RTP (70%-85%) - Reduction mode
+                    (0.60, 0.75),  // Low RTP (60%-75%) - Emergency reduction
+                    
+                    // 🚨 EMERGENCY LOW RANGES (Priority 4 - Only for extreme cases)
+                    (0.50, 0.65),  // Very low RTP range
+                    (0.40, 0.55),  // Critical low RTP range
+                    (0.30, 0.45),  // Ultra low RTP range
+                    (0.20, 0.35),  // Disaster low RTP range
+                    (0.10, 0.25)   // Ultra disaster low RTP range
                 };
                 
                 _logger.LogInformation("📊 Preloading {RangeCount} essential RTP ranges with {SetsPerRange} sets each", 
-                    essentialRanges.Count, 8333);
+                    essentialRanges.Count, 2000);
                 
-                var tasks = essentialRanges.Select(async range =>
+                // 🚀 MULTI-THREADED LOADING: Load ranges in parallel for maximum speed
+                _logger.LogInformation("🚀 Starting multi-threaded loading of {RangeCount} ranges", essentialRanges.Count);
+                
+                // Configure thread pool for optimal performance
+                ThreadPool.SetMinThreads(Environment.ProcessorCount * 2, Environment.ProcessorCount * 2);
+                ThreadPool.SetMaxThreads(Environment.ProcessorCount * 4, Environment.ProcessorCount * 4);
+                
+                var loadingTasks = essentialRanges.Select(async range =>
                 {
                     var (min, max) = range;
                     var rangeStartTime = DateTime.UtcNow;
-                    await GetReelSetsForRtpRangeAsync(min, max, 8333); // Load 8333 sets per range (50,000 total)
-                    var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
-                    _logger.LogDebug("✅ Range {Min:F2}-{Max:F2} loaded in {Time:F2}ms", min, max, rangeTime);
+                    _logger.LogInformation("🔄 LOADING RANGE: {Min:F2}-{Max:F2} RTP", min, max);
+                    
+                    try
+                    {
+                        await GetReelSetsForRtpRangeAsync(min, max, 2000); // Load 2000 sets per range (26,000 total)
+                        var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
+                        _logger.LogInformation("✅ RANGE LOADED: {Min:F2}-{Max:F2} in {Time:F2}ms", min, max, rangeTime);
+                        
+                        // Update progress
+                        var progress = (double)_rtpRangeCache.Count / essentialRanges.Count * 100;
+                        _logger.LogInformation("📊 LOADING PROGRESS: {Progress:F1}% ({LoadedRanges}/{TotalRanges} ranges)", 
+                            progress, _rtpRangeCache.Count, essentialRanges.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        var rangeTime = (DateTime.UtcNow - rangeStartTime).TotalMilliseconds;
+                        _logger.LogError(ex, "❌ FAILED RANGE: {Min:F2}-{Max:F2} after {Time:F2}ms", min, max, rangeTime);
+                    }
                 }).ToArray();
                 
-                await Task.WhenAll(tasks);
+                // Wait for all ranges to complete
+                await Task.WhenAll(loadingTasks);
                 
                 var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
                 _logger.LogInformation("✅ PRELOAD COMPLETE: {RangeCount} ranges loaded in {TotalTime:F0}ms", 
                     _rtpRangeCache.Count, totalTime);
-                _logger.LogInformation("🎯 READY FOR ULTRA-FAST SPINS! Total reel sets cached: {TotalSets} (50,000 target)", _totalReelSetsLoaded);
+                _logger.LogInformation("🎯 READY FOR ULTRA-FAST SPINS! Total reel sets cached: {TotalSets} (28,000 target)", _totalReelSetsLoaded);
+                
+                // 🚨 SET LOADING COMPLETE: Allow spins to proceed
+                _isFullyLoaded = true;
+                _logger.LogInformation("🚀 LOADING COMPLETE: Spins are now enabled! Total sets: {TotalSets}", _totalReelSetsLoaded);
             }
             catch (Exception ex)
             {
@@ -219,6 +340,35 @@ namespace BloodSuckersSlot.Api.Services
         public int GetTotalReelSetsLoaded()
         {
             return _totalReelSetsLoaded;
+        }
+        
+        // 🚨 LOADING STATUS METHODS
+        public bool IsFullyLoaded()
+        {
+            return _isFullyLoaded;
+        }
+        
+        public async Task WaitForLoadingCompleteAsync()
+        {
+            await _loadingSemaphore.WaitAsync();
+            try
+            {
+                while (!_isFullyLoaded)
+                {
+                    await Task.Delay(100); // Check every 100ms
+                }
+            }
+            finally
+            {
+                _loadingSemaphore.Release();
+            }
+        }
+        
+        public int GetLoadingProgress()
+        {
+            var totalExpectedRanges = 13; // Based on our essential ranges
+            var loadedRanges = _rtpRangeCache.Count;
+            return (int)((double)loadedRanges / totalExpectedRanges * 100);
         }
 
         #region Dynamic Prefetching Methods

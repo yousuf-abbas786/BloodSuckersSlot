@@ -41,5 +41,6 @@ builder.Services.AddScoped<BloodSuckersSlot.Web.Services.MongoDbService>();
 builder.Services.AddScoped<BloodSuckersSlot.Web.Services.IAuthService, BloodSuckersSlot.Web.Services.AuthService>();
 builder.Services.AddScoped<BloodSuckersSlot.Web.Services.IGamingEntityService, BloodSuckersSlot.Web.Services.GamingEntityService>();
 builder.Services.AddScoped<BloodSuckersSlot.Web.Services.IPlayerSessionService, BloodSuckersSlot.Web.Services.PlayerSessionService>();
+builder.Services.AddScoped<BloodSuckersSlot.Web.Services.LoadingStatusService>();
 
 await builder.Build().RunAsync();

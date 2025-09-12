@@ -8,99 +8,63 @@
 @inject IJSRuntime JS
 @inject IConfiguration Configuration
 @inject IPlayerSessionService PlayerSessionService
+@inject LoadingStatusService LoadingStatusService
 @implements IDisposable
 
 <PageTitle>Spin Page</PageTitle>
 
 <div class="container-fluid">
     <div class="row">
-        <!-- Session Stats -->
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-header">
-                    <h5>📊 Session Stats</h5>
-                </div>
-                <div class="card-body">
-                    @if (currentSessionData != null)
-                    {
-                        <div class="row">
-                            <div class="col-6">
-                                <small class="text-muted">RTP</small><br>
-                                <strong class="@(currentSessionData.TotalRtp >= 0.88 ? "text-success" : "text-danger")">@(currentSessionData.TotalRtp.ToString("P1"))</strong>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted">Hit Rate</small><br>
-                                <strong class="@(currentSessionData.HitRate >= 0.35 ? "text-success" : "text-danger")">@(currentSessionData.HitRate.ToString("P1"))</strong>
-                            </div>
-                        </div>
-                        <hr>
-                        <div class="row">
-                            <div class="col-6">
-                                <small class="text-muted">Spins</small><br>
-                                <strong>@currentSessionData.TotalSpins</strong>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted">Balance</small><br>
-                                <strong>£@currentSessionData.CurrentBalance.ToString("F2")</strong>
-                            </div>
-                        </div>
-                        <hr>
-                        <div class="row">
-                            <div class="col-6">
-                                <small class="text-muted">Total Bet</small><br>
-                                <strong>£@currentSessionData.TotalBet.ToString("F2")</strong>
-                            </div>
-                            <div class="col-6">
-                                <small class="text-muted">Total Win</small><br>
-                                <strong>£@currentSessionData.TotalWin.ToString("F2")</strong>
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <p class="text-muted">No session data</p>
-                    }
-                </div>
-            </div>
-        </div>
-        
-        <!-- Main Spin Area -->
-        <div class="col-md-6">
+        <!-- Main Spin Area - Full Width -->
+        <div class="col-12">
             <div class="card">
                 <div class="card-header">
                     <h3>Slot Machine Spin</h3>
                 </div>
                 <div class="card-body">
-                    <!-- Loading Status -->
-                    @if (isLoadingReelSets)
+                    <!-- Session Stats - Compact Row -->
+                    @if (currentSessionData != null)
                     {
-                        <div class="text-center mb-4">
-                            <div class="alert alert-info">
-                                <h5>Loading Reel Sets...</h5>
-                                <div class="progress mb-2">
-                                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                                         role="progressbar" 
-                                         style="width: @(loadingProgress * 100)%" 
-                                         aria-valuenow="@(loadingProgress * 100)" 
-                                         aria-valuemin="0" aria-valuemax="100">
-                                        @((loadingProgress * 100).ToString("F1"))%
-                                    </div>
-                                </div>
+                        <div class="row mb-3">
+                            <div class="col-md-2">
+                                <small class="text-muted">RTP</small><br>
+                                <strong class="@(currentSessionData.TotalRtp >= 0.88 ? "text-success" : "text-danger")">@(currentSessionData.TotalRtp.ToString("P1"))</strong>
+                            </div>
+                            <div class="col-md-2">
+                                <small class="text-muted">Hit Rate</small><br>
+                                <strong class="@(currentSessionData.HitRate >= 0.35 ? "text-success" : "text-danger")">@(currentSessionData.HitRate.ToString("P1"))</strong>
+                            </div>
+                            <div class="col-md-2">
+                                <small class="text-muted">Spins</small><br>
+                                <strong>@currentSessionData.TotalSpins</strong>
+                            </div>
+                            <div class="col-md-2">
+                                <small class="text-muted">Balance</small><br>
+                                <strong>£@currentSessionData.CurrentBalance.ToString("F2")</strong>
+                            </div>
+                            <div class="col-md-2">
+                                <small class="text-muted">Total Bet</small><br>
+                                <strong>£@currentSessionData.TotalBet.ToString("F2")</strong>
+                            </div>
+                            <div class="col-md-2">
+                                <small class="text-muted">Total Win</small><br>
+                                <strong>£@currentSessionData.TotalWin.ToString("F2")</strong>
                             </div>
                         </div>
+                        <hr>
                     }
 
                     <!-- Bet Controls -->
                     <div class="row mb-4">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="coinValue">Coin Value: $@coinValue.ToString("F2")</label>
+                                <label for="coinValue">Coin Value: £@coinValue.ToString("F2")</label>
                                 <input type="range" id="coinValue" class="form-range" 
                                        min="@minCoinValue" max="@maxCoinValue" step="0.01" 
                                        value="@coinValue" @onchange="OnCoinValueChanged" />
                                 <div class="d-flex justify-content-between">
-                                    <small>$@minCoinValue.ToString("F2")</small>
-                                    <small>$@maxCoinValue.ToString("F2")</small>
+                                    <small>£@minCoinValue.ToString("F2")</small>
+                                    <small>£@maxCoinValue.ToString("F2")</small>
                                 </div>
                             </div>
                         </div>
@@ -118,30 +82,30 @@
                         </div>
                     </div>
 
-                    <!-- Bet Information -->
+                    <!-- Bet Information - Compact Row -->
                     <div class="row mb-4">
-                        <div class="col-md-4">
-                            <div class="card">
-                                <div class="card-body text-center">
-                                    <h6>Bet (Coins)</h6>
-                                    <h4>@betInCoins</h4>
-                                </div>
+                        <div class="col-md-3">
+                            <div class="text-center p-2 border rounded">
+                                <small class="text-muted">Bet (Coins)</small><br>
+                                <strong>@betInCoins</strong>
                             </div>
                         </div>
-                        <div class="col-md-4">
-                            <div class="card">
-                                <div class="card-body text-center">
-                                    <h6>Total Bet</h6>
-                                    <h4>@totalBet.ToString("C")</h4>
-                                </div>
+                        <div class="col-md-3">
+                            <div class="text-center p-2 border rounded">
+                                <small class="text-muted">Total Bet</small><br>
+                                <strong>£@totalBet.ToString("F2")</strong>
                             </div>
                         </div>
-                        <div class="col-md-4">
-                            <div class="card">
-                                <div class="card-body text-center">
-                                    <h6>Last Win</h6>
-                                    <h4>@lastWin.ToString("C")</h4>
-                                </div>
+                        <div class="col-md-3">
+                            <div class="text-center p-2 border rounded">
+                                <small class="text-muted">Last Win</small><br>
+                                <strong>£@lastWin.ToString("F2")</strong>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center p-2 border rounded">
+                                <small class="text-muted">Level</small><br>
+                                <strong>@level</strong>
                             </div>
                         </div>
                     </div>
@@ -150,19 +114,15 @@
                     <div class="text-center mb-4">
                         <!-- Manual Spin Button -->
                         <button class="btn btn-primary btn-lg me-3" @onclick="PerformSpin" 
-                                disabled="@(isSpinning || isLoadingReelSets || !reelSetsLoaded || isAutoSpinning)">
+                                disabled="@(isSpinning || !LoadingStatusService.IsFullyLoaded || isAutoSpinning)">
                             @if (isSpinning)
                             {
                                 <span class="spinner-border spinner-border-sm me-2" role="status"></span>
                                 <span>Spinning...</span>
                             }
-                            else if (isLoadingReelSets)
+                            else if (!LoadingStatusService.IsFullyLoaded)
                             {
                                 <span>⏳ Loading...</span>
-                            }
-                            else if (!reelSetsLoaded)
-                            {
-                                <span>⏳ Waiting...</span>
                             }
                             else if (isAutoSpinning)
                             {
@@ -178,8 +138,15 @@
                         @if (!isAutoSpinning)
                         {
                             <button class="btn btn-success btn-lg" @onclick="StartAutoSpin" 
-                                    disabled="@(isSpinning || isLoadingReelSets || !reelSetsLoaded)">
-                                <span>🔄 AUTO-SPIN</span>
+                                    disabled="@(isSpinning || !LoadingStatusService.IsFullyLoaded)">
+                                @if (!LoadingStatusService.IsFullyLoaded)
+                                {
+                                    <span>⏳ Loading...</span>
+                                }
+                                else
+                                {
+                                    <span>🔄 AUTO-SPIN</span>
+                                }
                             </button>
                         }
                         else
@@ -820,7 +787,13 @@
     {
         if (firstRender)
         {
-            await JS.InvokeVoidAsync("console.log", "🔄 Spin page loaded - triggering reel set reload...");
+            await JS.InvokeVoidAsync("console.log", "🔄 Spin page loaded - initializing loading status...");
+            
+            // Subscribe to loading status changes
+            LoadingStatusService.OnLoadingStatusChanged += OnLoadingStatusChanged;
+            
+            // Start checking loading status
+            _ = Task.Run(async () => await LoadingStatusService.StartPollingAsync());
             
             // Load betting system configuration
             LoadBettingConfiguration();
@@ -1740,8 +1713,14 @@
     }
 
 
+    private void OnLoadingStatusChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
     public void Dispose()
     {
+        LoadingStatusService.OnLoadingStatusChanged -= OnLoadingStatusChanged;
         // No timer cleanup needed with new AutoSpinLoop approach
     }
 }
