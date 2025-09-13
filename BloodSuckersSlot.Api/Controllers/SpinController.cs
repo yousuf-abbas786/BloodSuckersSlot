@@ -491,14 +491,13 @@ namespace BloodSuckersSlot.Api.Controllers
             try
             {
                 var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? 
-                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
-                              "anonymous";
+                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value;
 
-                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for anonymous users
-                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous" || playerId == "default")
+                // 🚨 SECURITY: Player ID must exist - no anonymous access allowed
+                if (string.IsNullOrEmpty(playerId))
                 {
-                    playerId = ObjectId.GenerateNewId().ToString();
-                    _logger.LogInformation("🆔 Generated new player ID for anonymous user: {PlayerId}", playerId);
+                    _logger.LogWarning("🚨 SECURITY VIOLATION: No valid player ID found in JWT token");
+                    return Unauthorized("Invalid authentication - player ID required");
                 }
 
                 // Preload the session into cache
@@ -710,19 +709,18 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
                 
                 _logger.LogInformation("🎰 SPIN REQUEST STARTED: Player={PlayerId}, Level={Level}, CoinValue={CoinValue}", 
-                    User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "anonymous", 
+                    User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "INVALID", 
                     request.Level, request.CoinValue);
                 
                 // Get player ID from JWT token
                 var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? 
-                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
-                              "anonymous";
+                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value;
                 
-                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for anonymous users
-                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous" || playerId == "default")
+                // 🚨 SECURITY: Player ID must exist - no anonymous access allowed
+                if (string.IsNullOrEmpty(playerId))
                 {
-                    playerId = ObjectId.GenerateNewId().ToString();
-                    _logger.LogInformation("🆔 Generated new player ID for anonymous user: {PlayerId}", playerId);
+                    _logger.LogWarning("🚨 SECURITY VIOLATION: No valid player ID found in JWT token");
+                    return Unauthorized("Invalid authentication - player ID required");
                 }
                 
                 var step1Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
@@ -1008,14 +1006,13 @@ namespace BloodSuckersSlot.Api.Controllers
 
                 // Get player ID from JWT token (same as Spin endpoint)
                 var playerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? 
-                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? 
-                              "anonymous";
+                              User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value;
                 
-                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for anonymous users
-                if (string.IsNullOrEmpty(playerId) || playerId == "anonymous" || playerId == "default")
+                // 🚨 SECURITY: Player ID must exist - no anonymous access allowed
+                if (string.IsNullOrEmpty(playerId))
                 {
-                    playerId = ObjectId.GenerateNewId().ToString();
-                    _logger.LogInformation("🆔 Generated new player ID for anonymous user: {PlayerId}", playerId);
+                    _logger.LogWarning("🚨 SECURITY VIOLATION: No valid player ID found in JWT token");
+                    return Unauthorized("Invalid authentication - player ID required");
                 }
                 
                 var autoSpinId = Guid.NewGuid().ToString();

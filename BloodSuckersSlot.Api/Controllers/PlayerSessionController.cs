@@ -71,10 +71,10 @@ namespace BloodSuckersSlot.Api.Controllers
                     return Unauthorized("Invalid user context");
                 }
 
-                // 🚨 FIX INVALID PLAYER ID: Handle invalid player IDs
-                if (playerId == "default" || playerId == "anonymous" || !ObjectId.TryParse(playerId, out _))
+                // 🚨 SECURITY: Player ID must be valid ObjectId - no anonymous access allowed
+                if (!ObjectId.TryParse(playerId, out _))
                 {
-                    _logger.LogWarning("❌ Invalid player ID in JWT token: {PlayerId} - returning not found", playerId);
+                    _logger.LogWarning("🚨 SECURITY VIOLATION: Invalid player ID format in JWT token: {PlayerId}", playerId);
                     return NotFound("No active session found");
                 }
 
@@ -219,10 +219,10 @@ namespace BloodSuckersSlot.Api.Controllers
                     return Unauthorized("Invalid user context");
                 }
 
-                // 🚨 FIX INVALID PLAYER ID: Handle invalid player IDs
-                if (playerId == "default" || playerId == "anonymous" || !ObjectId.TryParse(playerId, out _))
+                // 🚨 SECURITY: Player ID must be valid ObjectId - no anonymous access allowed
+                if (!ObjectId.TryParse(playerId, out _))
                 {
-                    _logger.LogWarning("❌ Invalid player ID in JWT token: {PlayerId} - returning empty stats", playerId);
+                    _logger.LogWarning("🚨 SECURITY VIOLATION: Invalid player ID format in JWT token: {PlayerId}", playerId);
                     return Ok(new PlayerStatsResponse
                     {
                         PlayerId = playerId,
@@ -267,11 +267,11 @@ namespace BloodSuckersSlot.Api.Controllers
                     return Unauthorized("Invalid user context");
                 }
 
-                // 🚨 FIX INVALID PLAYER ID: Generate proper ObjectId for invalid player IDs
-                if (playerId == "default" || playerId == "anonymous" || !ObjectId.TryParse(playerId, out _))
+                // 🚨 SECURITY: Player ID must be valid ObjectId - no anonymous access allowed
+                if (!ObjectId.TryParse(playerId, out _))
                 {
-                    _logger.LogWarning("❌ Invalid player ID in JWT token: {PlayerId} - returning empty sessions", playerId);
-                    return Ok(new List<PlayerSessionResponse>());
+                    _logger.LogWarning("🚨 SECURITY VIOLATION: Invalid player ID format in JWT token: {PlayerId}", playerId);
+                    return Unauthorized("Invalid player ID format");
                 }
 
                 var sessions = await _playerSessionService.GetPlayerSessionsAsync(playerId, pageNumber, pageSize);
