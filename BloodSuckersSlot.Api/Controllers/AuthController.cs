@@ -13,14 +13,16 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly IJwtService _jwtService;
         private readonly IPlayerSessionService _playerSessionService;
         private readonly IPlayerSpinSessionService _playerSpinSessionService;
+        private readonly ISessionPreloadService _sessionPreloadService;
         private readonly ILogger<AuthController> _logger;
 
-        public AuthController(IGamingEntityAuthService entityAuthService, IJwtService jwtService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, ILogger<AuthController> logger)
+        public AuthController(IGamingEntityAuthService entityAuthService, IJwtService jwtService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, ISessionPreloadService sessionPreloadService, ILogger<AuthController> logger)
         {
             _entityAuthService = entityAuthService;
             _jwtService = jwtService;
             _playerSessionService = playerSessionService;
             _playerSpinSessionService = playerSpinSessionService;
+            _sessionPreloadService = sessionPreloadService;
             _logger = logger;
         }
 
@@ -53,6 +55,25 @@ namespace BloodSuckersSlot.Api.Controllers
 
                 var token = _jwtService.GenerateToken(entity);
                 var refreshToken = _jwtService.GenerateRefreshToken();
+
+                // 🚀 PERFORMANCE: Preload player session after successful login
+                try
+                {
+                    var preloaded = await _sessionPreloadService.PreloadSessionAsync(entity.Id);
+                    if (preloaded)
+                    {
+                        _logger.LogInformation("🚀 SESSION PRELOADED: Player {PlayerId} session cached after login", entity.Id);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("⚠️ Failed to preload session for player {PlayerId} after login", entity.Id);
+                    }
+                }
+                catch (Exception preloadEx)
+                {
+                    _logger.LogWarning(preloadEx, "⚠️ Failed to preload session for player {PlayerId} after login", entity.Id);
+                    // Don't fail login if session preload fails
+                }
 
                 var entityInfo = new EntityInfo
                 {

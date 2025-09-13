@@ -24,6 +24,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly IPlayerSpinSessionService _playerSpinSessionService;
         private readonly IReelSetCacheService _reelSetCacheService;
         private readonly IGlobalRtpBalancingService _globalRtpBalancingService;
+        private readonly ISessionPreloadService _sessionPreloadService;
         
         // 🚀 SESSION CACHING for ultra-fast spins
         private readonly Dictionary<string, PlayerSessionResponse> _sessionCache = new();
@@ -38,7 +39,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly SemaphoreSlim _spinLogicCacheLock = new(1);
 
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
-            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService, IGlobalRtpBalancingService globalRtpBalancingService)
+            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService, IGlobalRtpBalancingService globalRtpBalancingService, ISessionPreloadService sessionPreloadService)
         {
             var startTime = DateTime.UtcNow;
             
@@ -49,6 +50,7 @@ namespace BloodSuckersSlot.Api.Controllers
             _playerSpinSessionService = playerSpinSessionService;
             _reelSetCacheService = reelSetCacheService;
             _globalRtpBalancingService = globalRtpBalancingService;
+            _sessionPreloadService = sessionPreloadService;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
             
             var initTime = (DateTime.UtcNow - startTime).TotalMilliseconds;

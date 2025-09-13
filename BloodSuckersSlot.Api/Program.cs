@@ -122,6 +122,7 @@ builder.Services.AddScoped<IGamingEntityAuthService, GamingEntityAuthService>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IPlayerSessionService, PlayerSessionService>();
 builder.Services.AddSingleton<IPlayerSpinSessionService, PlayerSpinSessionService>();
+builder.Services.AddScoped<ISessionPreloadService, SessionPreloadService>();
 builder.Services.AddScoped<SpinLogicHelper>();
 
 // 🌍 GLOBAL RTP BALANCING: Register service for multiplayer RTP balancing
