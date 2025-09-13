@@ -52,6 +52,35 @@
                             </div>
                         </div>
                         <hr>
+                        
+                        <!-- Selected Reel Set - Compact Horizontal -->
+                        @if (chosenReelSet != null)
+                        {
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <div class="alert alert-secondary py-2">
+                                        <div class="row align-items-center">
+                                            <div class="col-md-3">
+                                                <small class="text-muted">Selected Reel Set:</small><br>
+                                                <strong>@chosenReelSet.Name</strong>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <small class="text-muted">Expected RTP:</small><br>
+                                                <strong>@(chosenReelSet.ExpectedRtp.ToString("P2"))</strong>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <small class="text-muted">Hit Rate:</small><br>
+                                                <strong>@(chosenReelSet.EstimatedHitRate.ToString("P2"))</strong>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <small class="text-muted">Status:</small><br>
+                                                <span class="badge bg-success">Active</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
                     }
 
                     <!-- Bet Controls -->
@@ -368,16 +397,6 @@
                             }
                         }
 
-                        <!-- Chosen Reel Set Info -->
-                        @if (chosenReelSet != null)
-                        {
-                            <div class="alert alert-secondary">
-                                <h6>Selected Reel Set:</h6>
-                                <p><strong>Name:</strong> @chosenReelSet.Name</p>
-                                <p><strong>Expected RTP:</strong> @(chosenReelSet.ExpectedRtp.ToString("P2"))</p>
-                                <p><strong>Estimated Hit Rate:</strong> @(chosenReelSet.EstimatedHitRate.ToString("P2"))</p>
-                            </div>
-                        }
                     }
                 </div>
             </div>
