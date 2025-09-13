@@ -34,12 +34,11 @@ namespace BloodSuckersSlot.Api.Controllers
         
         // 🚀 SPIN SPEED OPTIMIZATIONS (moved to ReelSetCacheService)
         
-        // 🚀 SPINLOGICHELPER CACHING for ultra-fast spins
-        private readonly Dictionary<string, SpinLogicHelper> _spinLogicCache = new();
-        private readonly SemaphoreSlim _spinLogicCacheLock = new(1);
+        // SpinLogicHelper instance via DI
+        private readonly SpinLogicHelper _spinLogicHelper;
 
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
-            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService, IGlobalRtpBalancingService globalRtpBalancingService, ISessionPreloadService sessionPreloadService)
+            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService, IGlobalRtpBalancingService globalRtpBalancingService, ISessionPreloadService sessionPreloadService, SpinLogicHelper spinLogicHelper)
         {
             var startTime = DateTime.UtcNow;
             
@@ -51,12 +50,14 @@ namespace BloodSuckersSlot.Api.Controllers
             _reelSetCacheService = reelSetCacheService;
             _globalRtpBalancingService = globalRtpBalancingService;
             _sessionPreloadService = sessionPreloadService;
+            _spinLogicHelper = spinLogicHelper;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
             
             var initTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
             _logger.LogInformation("🚀 SpinController initialized in {InitTime:F2}ms - ready for ultra-fast spins", initTime);
             _logger.LogInformation("📊 SpinController Performance Settings: SpinTimeout={SpinTimeout}s, SessionCacheExpiry={SessionCacheExpiry}min", 
                 _performanceSettings.SpinTimeoutSeconds, _sessionCacheExpiry.TotalMinutes);
+            _logger.LogInformation("✅ SpinLogicHelper registered via DI - no caching complexity");
         }
 
         // 🚀 ULTRA-FAST PRELOADING: Load essential reel sets for instant spins
@@ -79,219 +80,9 @@ namespace BloodSuckersSlot.Api.Controllers
             return _reelSetCacheService.GetInstantReelSets();
         }
 
-        // Get reel sets for current RTP needs - SMART PREFETCHING ENABLED
-        [ApiExplorerSettings(IgnoreApi = true)]
-        public async Task<List<ReelSet>> GetReelSetsForCurrentRtpAsync(double currentRtp, double targetRtp, GameConfig config)
-        {
-            var startTime = DateTime.UtcNow;
-            
-            // 🚀 SMART PREFETCHING: Try to get smart prefetched ranges first
-            var smartRanges = CalculateRtpRange(currentRtp, targetRtp);
-            
-            foreach (var range in smartRanges)
-            {
-                var prefetchedSets = await _reelSetCacheService.GetReelSetsForRtpRangeAsync(range.Item1, range.Item2, 200);
-                if (prefetchedSets.Count > 0)
-                {
-                    var totalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
-                    _logger.LogInformation($"🎯 SMART PREFETCH: {prefetchedSets.Count} reel sets for RTP {range.Item1:P2}-{range.Item2:P2} in {totalTime:F0}ms");
-                    return prefetchedSets;
-                }
-            }
-            
-            // Fallback: Use static preloaded data if no smart prefetch available
-            var staticSets = _reelSetCacheService.GetInstantReelSets();
-            var fallbackTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            
-            if (staticSets.Count > 0)
-            {
-                _logger.LogInformation($"🔄 STATIC FALLBACK: {staticSets.Count} reel sets from static cache in {fallbackTime:F0}ms");
-                return staticSets;
-            }
-            
-            // Last resort: Load minimal set on-demand
-            _logger.LogWarning("⚠️ NO CACHED DATA: Loading minimal reel set on-demand");
-            var emergencySets = await _reelSetCacheService.GetReelSetsForRtpRangeAsync(targetRtp * 0.8, targetRtp * 1.2, 100);
-            _logger.LogInformation($"🚨 EMERGENCY LOAD: {emergencySets.Count} reel sets in {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
-            
-            return emergencySets;
-        }
         
-        // 🌍 GLOBAL RTP BALANCING: Select reel sets based on global multiplayer RTP balance
-        private async Task<List<ReelSet>> SelectOptimalReelSetsForGlobalBalanceAsync(List<ReelSet> allReelSets, double currentRtp, double currentHitRate, GameConfig config, string playerId)
-        {
-            if (!allReelSets.Any()) return allReelSets;
-
-            // Get global RTP statistics
-            var globalStats = await _globalRtpBalancingService.GetGlobalRtpStatsAsync();
-            var adjustmentFactor = await _globalRtpBalancingService.GetPlayerRtpAdjustmentFactorAsync(playerId);
-
-            _logger.LogInformation($"🌍 GLOBAL BALANCE: GlobalAvg={globalStats.AverageRtp:P2}, Target={config.RtpTarget:P2}, PlayerRTP={currentRtp:P2}, Factor={adjustmentFactor:F2}");
-
-            var optimalSets = new List<ReelSet>();
-
-            // Determine selection strategy based on global vs target RTP
-            if (globalStats.AverageRtp < config.RtpTarget * 0.95) // Global below 95% of target
-            {
-                _logger.LogInformation($"📈 GLOBAL RECOVERY: Global RTP {globalStats.AverageRtp:P2} below target - boosting players");
-                
-                if (adjustmentFactor > 1.1) // Strong boost needed
-                {
-                    // Use high RTP reel sets for strong recovery
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.1) // 96.8%+
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(150)
-                        .ToList();
-                    
-                    _logger.LogInformation($"🚀 STRONG BOOST: Selected {optimalSets.Count} high RTP reel sets");
-                }
-                else if (adjustmentFactor > 1.0) // Moderate boost needed
-                {
-                    // Use target+ RTP reel sets for moderate recovery
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.05) // 92.4%+
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(200)
-                        .ToList();
-                    
-                    _logger.LogInformation($"📈 MODERATE BOOST: Selected {optimalSets.Count} target+ RTP reel sets");
-                }
-                else
-                {
-                    // Use balanced RTP reel sets
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.9) // 79.2%+
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(250)
-                        .ToList();
-                    
-                    _logger.LogInformation($"🎯 BALANCED: Selected {optimalSets.Count} balanced RTP reel sets");
-                }
-            }
-            else if (globalStats.AverageRtp > config.RtpTarget * 1.05) // Global above 105% of target
-            {
-                _logger.LogInformation($"📉 GLOBAL REDUCTION: Global RTP {globalStats.AverageRtp:P2} above target - reducing players");
-                
-                if (adjustmentFactor < 0.9) // Strong reduction needed
-                {
-                    // Use lower RTP reel sets for strong reduction
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.8) // 70.4%-
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(150)
-                        .ToList();
-                    
-                    _logger.LogInformation($"📉 STRONG REDUCTION: Selected {optimalSets.Count} low RTP reel sets");
-                }
-                else if (adjustmentFactor < 1.0) // Moderate reduction needed
-                {
-                    // Use balanced-low RTP reel sets for moderate reduction
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.9) // 79.2%-
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(200)
-                        .ToList();
-                    
-                    _logger.LogInformation($"📉 MODERATE REDUCTION: Selected {optimalSets.Count} balanced-low RTP reel sets");
-                }
-                else
-                {
-                    // Use balanced RTP reel sets
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.8 && r.ExpectedRtp <= config.RtpTarget * 1.1) // 70.4%-96.8%
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(250)
-                        .ToList();
-                    
-                    _logger.LogInformation($"🎯 BALANCED: Selected {optimalSets.Count} balanced RTP reel sets");
-                }
-            }
-            else // Global RTP is in healthy range (95%-105% of target)
-            {
-                _logger.LogInformation($"🎯 GLOBAL BALANCED: Global RTP {globalStats.AverageRtp:P2} in healthy range - natural play");
-                
-                // Use natural volatility with slight adjustments
-                if (adjustmentFactor > 1.05) // Slight boost
-                {
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.95) // 83.6%+
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(300)
-                        .ToList();
-                }
-                else if (adjustmentFactor < 0.95) // Slight reduction
-                {
-                    optimalSets = allReelSets
-                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 1.05) // 92.4%-
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(300)
-                        .ToList();
-                }
-                else
-                {
-                    // Use all reel sets for natural volatility
-                    optimalSets = allReelSets
-                        .OrderByDescending(r => r.ExpectedRtp)
-                        .Take(400)
-                        .ToList();
-                }
-                
-                _logger.LogInformation($"🎯 NATURAL PLAY: Selected {optimalSets.Count} reel sets for natural volatility");
-            }
-
-            // Fallback if no sets selected
-            if (!optimalSets.Any())
-            {
-                _logger.LogWarning("⚠️ NO OPTIMAL SETS: Using fallback selection");
-                optimalSets = allReelSets.Take(100).ToList();
-            }
-
-            return optimalSets;
-        }
         
-        // 🧮 REEL SET SCORING FORMULA: Calculate best reel set based on current state
-        private double CalculateReelSetScore(ReelSet reelSet, double currentRtp, double currentHitRate, GameConfig config)
-        {
-            // RTP Score: Higher score for reel sets that help reach target
-            double rtpScore = 1.0 - Math.Abs(reelSet.ExpectedRtp - config.RtpTarget) / config.RtpTarget;
-            
-            // Hit Rate Score: Higher score for reel sets that help reach target hit rate
-            double hitRateScore = 1.0 - Math.Abs(reelSet.EstimatedHitRate - config.TargetHitRate) / config.TargetHitRate;
-            
-            // Recovery Bonus: Extra score for reel sets that help recover from low RTP
-            double recoveryBonus = currentRtp < config.RtpTarget ? 
-                (reelSet.ExpectedRtp > config.RtpTarget ? 0.5 : 0) : 0;
-            
-            // Combined Score
-            return (rtpScore * 0.6) + (hitRateScore * 0.3) + (recoveryBonus * 0.1);
-        }
 
-        // Helper method to calculate RTP ranges for smart prefetching
-        private List<(double MinRtp, double MaxRtp)> CalculateRtpRange(double currentRtp, double targetRtp)
-        {
-            var ranges = new List<(double MinRtp, double MaxRtp)>();
-            
-            // Primary range: Around current RTP (CONTROLLED LIMITS)
-            var currentRange = (Math.Max(0.5, currentRtp - 0.1), Math.Min(1.2, currentRtp + 0.1)); // 50%-120% max
-            ranges.Add(currentRange);
-            
-            // Recovery range: Towards target RTP (CONTROLLED LIMITS)
-            if (currentRtp < targetRtp)
-            {
-                var recoveryRange = (Math.Max(0.6, targetRtp - 0.15), Math.Min(1.1, targetRtp + 0.05)); // 60%-110% max
-                ranges.Add(recoveryRange);
-            }
-            
-            // Adjacent ranges for variety (CONTROLLED LIMITS)
-            var adjacent1 = (Math.Max(0.5, currentRtp - 0.2), Math.Max(0.5, currentRtp - 0.1));
-            var adjacent2 = (Math.Min(1.2, currentRtp + 0.1), Math.Min(1.2, currentRtp + 0.2));
-            
-            if (adjacent1.Item1 < adjacent1.Item2) ranges.Add(adjacent1);
-            if (adjacent2.Item1 < adjacent2.Item2) ranges.Add(adjacent2);
-            
-            return ranges;
-        }
 
         // 🚀 SESSION CACHING METHODS for ultra-fast spins
         [ApiExplorerSettings(IgnoreApi = true)]
@@ -386,58 +177,6 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
-        // 🚀 SPINLOGICHELPER CACHING METHODS for ultra-fast spins
-        [ApiExplorerSettings(IgnoreApi = true)]
-        private SpinLogicHelper GetCachedSpinLogicHelper(string playerId)
-        {
-            try
-            {
-                _spinLogicCacheLock.Wait();
-                
-                if (_spinLogicCache.ContainsKey(playerId))
-                {
-                    _logger.LogDebug($"🎯 SPINLOGIC CACHE HIT: Player {playerId}");
-                    return _spinLogicCache[playerId];
-                }
-
-                // Cache miss - create new instance
-                _logger.LogDebug($"🔄 SPINLOGIC CACHE MISS: Creating SpinLogicHelper for player {playerId}");
-                var spinLogicHelper = _playerSpinSessionService.GetOrCreatePlayerSession(playerId);
-                _spinLogicCache[playerId] = spinLogicHelper;
-                _logger.LogDebug($"✅ SPINLOGIC CACHED: Player {playerId}");
-
-                return spinLogicHelper;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, $"⚠️ Failed to get cached SpinLogicHelper for player {playerId}");
-                // Fallback to direct creation
-                return _playerSpinSessionService.GetOrCreatePlayerSession(playerId);
-            }
-            finally
-            {
-                _spinLogicCacheLock.Release();
-            }
-        }
-
-        [ApiExplorerSettings(IgnoreApi = true)]
-        private void RemoveCachedSpinLogicHelper(string playerId)
-        {
-            try
-            {
-                _spinLogicCacheLock.Wait();
-                _spinLogicCache.Remove(playerId);
-                _logger.LogDebug($"🗑️ SPINLOGIC CACHE REMOVED: Player {playerId}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, $"⚠️ Failed to remove cached SpinLogicHelper for player {playerId}");
-            }
-            finally
-            {
-                _spinLogicCacheLock.Release();
-            }
-        }
 
         // 🚀 DYNAMIC PREFETCHING based on player trends
         [ApiExplorerSettings(IgnoreApi = true)]
@@ -574,7 +313,7 @@ namespace BloodSuckersSlot.Api.Controllers
                         activeRanges = _reelSetCacheService.GetCacheSize(),
                         totalReelSetsLoaded = _reelSetCacheService.GetTotalReelSetsLoaded(),
                         sessionCacheSize = _sessionCache.Count,
-                        spinLogicCacheSize = _spinLogicCache.Count
+                        spinLogicCacheSize = 0
                     }
                 });
             }
@@ -647,7 +386,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     cacheExpiryMinutes = _sessionCacheExpiry.TotalMinutes
                 },
                 spinLogicCache = new {
-                    activeInstances = _spinLogicCache.Count
+                    activeInstances = 1
                 },
                 reelSetCache = new {
                     activeRanges = _reelSetCacheService.GetCacheSize(),
@@ -728,8 +467,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 var step1Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
                 
-                // Get or create player-specific spin session (cached for performance)
-                var playerSpinSession = GetCachedSpinLogicHelper(playerId);
+                // Get or create player-specific spin session (via DI)
+                var playerSpinSession = _spinLogicHelper;
                 
                 var step2Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
@@ -811,9 +550,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
                 }
                 
-                // 🌍 GLOBAL RTP BALANCING: Use intelligent multiplayer balancing for all scenarios
-                List<ReelSet> allReelSets = GetInstantReelSets();
-                List<ReelSet> reelSets = await SelectOptimalReelSetsForGlobalBalanceAsync(allReelSets, currentRtp, currentHitRate, _config, playerId);
+                // Use actual reel sets directly - let the engine work naturally
+                List<ReelSet> reelSets = GetInstantReelSets();
                 
                 var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
@@ -822,7 +560,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 if (reelSets.Count == 0)
                 {
                     _logger.LogWarning("⚠️ NO CACHED DATA: Using emergency fallback");
-                    reelSets = allReelSets.Take(100).ToList(); // Fast fallback
+                    reelSets = GetInstantReelSets().Take(100).ToList(); // Fast fallback
                 }
                 
                 _logger.LogDebug("🎯 Using {ReelSetCount} reel sets for spin", reelSets.Count);

@@ -141,8 +141,6 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<AutoSp
 // Register PlayerSessionCleanupService
 builder.Services.AddHostedService<PlayerSessionCleanupService>();
 
-// 🌍 GLOBAL RTP BACKGROUND SERVICE: Update global RTP stats every 2 seconds
-builder.Services.AddHostedService<GlobalRtpUpdateService>();
 
 var app = builder.Build();
 
