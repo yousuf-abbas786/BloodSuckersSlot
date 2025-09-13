@@ -473,14 +473,12 @@ namespace BloodSuckersSlot.Api.Controllers
                 var step2Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
                 
-                // Get current RTP and Hit Rate from player's session
-                var currentRtp = playerSpinSession.GetActualRtp();
-                var currentHitRate = playerSpinSession.GetActualHitRate();
+
                 
                 var step3Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
                 
-                _logger.LogDebug("📊 Player Session Stats: RTP={Rtp:P2}, HitRate={HitRate:P2}", currentRtp, currentHitRate);
+                //_logger.LogDebug("📊 Player Session Stats: RTP={Rtp:P2}, HitRate={HitRate:P2}", currentRtp, currentHitRate);
                 
                 // Validate bet parameters
                 if (!BettingSystem.ValidateBet(request.Level, request.CoinValue, _config.MaxLevel, _config.MinCoinValue, _config.MaxCoinValue))
@@ -550,6 +548,27 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
                 }
                 
+                // 🎯 CRITICAL FIX: Load session data into SpinLogicHelper before spinning
+                if (currentSession != null)
+                {
+                    playerSpinSession.LoadSessionState(currentSession);
+                    _logger.LogInformation("🎯 SESSION LOADED INTO SPINLOGIC: Player {PlayerId}, Spins={Spins}, RTP={Rtp:P2}, HitRate={HitRate:P2}", 
+                        playerId, currentSession.TotalSpins, currentSession.TotalRtp, currentSession.HitRate);
+                    
+                    // 🎯 UPDATE REQUEST DTO: Add missing session data to request
+                    request.CurrentRtp = currentSession.TotalRtp;
+                    request.CurrentHitRate = currentSession.HitRate;
+                    _logger.LogDebug("🎯 REQUEST UPDATED: RTP={Rtp:P2}, HitRate={HitRate:P2}", request.CurrentRtp, request.CurrentHitRate);
+                }
+                else
+                {
+                    _logger.LogWarning("🚨 NO SESSION TO LOAD: Player {PlayerId} has no session data", playerId);
+                }
+
+                // Get current RTP and Hit Rate from player's session
+                var currentRtp = playerSpinSession.GetActualRtp();
+                var currentHitRate = playerSpinSession.GetActualHitRate();
+
                 // Use actual reel sets directly - let the engine work naturally
                 List<ReelSet> reelSets = GetInstantReelSets();
                 
@@ -569,7 +588,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 
                 // Execute spin with loaded reel sets using session-based RTP and Hit Rate
                 // Execute spin using player's session
-                var (result, grid, chosenSet, winningLines) = playerSpinSession.SpinWithReelSets(_config, betInCoins, reelSets, currentRtp, currentHitRate);
+                var (result, grid, chosenSet, winningLines) = playerSpinSession.SpinWithReelSets(_config, betInCoins, reelSets, currentRtp, currentHitRate, (double)totalBet, (double)request.CoinValue);
                 
                 var step6Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
@@ -583,9 +602,16 @@ namespace BloodSuckersSlot.Api.Controllers
                 // Calculate monetary payout
                 decimal monetaryPayout = BettingSystem.CalculatePayout((int)result.TotalWin, request.CoinValue);
                 
-                // Get actual RTP and Hit Rate from the player's session
-                var actualRtp = playerSpinSession.GetActualRtp();
-                var actualHitRate = playerSpinSession.GetActualHitRate();
+                // 🎯 GET LATEST SESSION STATE: Get updated state from SpinLogicHelper
+                var latestSessionState = playerSpinSession.GetCurrentSessionState();
+                
+                // Get actual RTP and Hit Rate from the UPDATED session state
+                var actualRtp = latestSessionState.CurrentRtp;
+                var actualHitRate = latestSessionState.CurrentHitRate;
+                
+                _logger.LogDebug("🎯 SESSION STATE UPDATED: Spins={Spins}, Bet={Bet:F2}, Win={Win:F2}, RTP={Rtp:P2}, HitRate={HitRate:P2}", 
+                    latestSessionState.SpinCounter, latestSessionState.TotalBet, latestSessionState.TotalWin, 
+                    latestSessionState.CurrentRtp, latestSessionState.CurrentHitRate);
                 
                 var step7Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
                 stepTime = DateTime.UtcNow;
@@ -682,6 +708,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     hitRate = actualHitRate,
                     winningLines = winningLines ?? new List<WinningLine>(),
                     currentSession = currentSession, // 🚨 FIX: Return the UPDATED session (already updated above)
+                    latestSessionState = latestSessionState, // 🎯 NEW: Return latest SpinLogicHelper state
                     performance = new
                     {
                         spinTimeMs = totalTime,

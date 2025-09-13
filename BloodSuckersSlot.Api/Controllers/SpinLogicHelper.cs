@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Shared;
+using Shared.Models;
 using System.Threading;
 
 // STABLE RTP BALANCING IMPLEMENTATION: CONSISTENT AND PREDICTABLE PERFORMANCE
@@ -62,11 +63,57 @@ namespace BloodSuckersSlot.Api.Controllers
             _logger = logger;
         }
 
+        // 🎯 SESSION STATE MANAGEMENT: Load session data into SpinLogicHelper
+        public void LoadSessionState(PlayerSessionResponse session)
+        {
+            spinCounter = session.TotalSpins;
+            _totalBet = (double)session.TotalBet;
+            _totalWin = (double)session.TotalWin;
+            _hitCount = session.WinningSpins;
+            _freeSpinsAwarded = session.FreeSpinsAwarded;
+            _totalBonusesTriggered = session.BonusesTriggered;
+            
+            // Load recent wins for volatility calculation (simulate from session data)
+            _recentWins.Clear();
+            if (session.MaxWin > 0)
+            {
+                // Add some recent wins based on session data for volatility calculation
+                for (int i = 0; i < Math.Min(10, session.WinningSpins); i++)
+                {
+                    _recentWins.Add((double)session.MaxWin * (0.5 + _rng.NextDouble() * 0.5)); // Simulate recent wins
+                }
+            }
+            
+            _logger.LogDebug("🎯 SESSION LOADED: Spins={Spins}, Bet={Bet:F2}, Win={Win:F2}, Hits={Hits}", 
+                spinCounter, _totalBet, _totalWin, _hitCount);
+        }
+
+        // 🎯 SESSION STATE MANAGEMENT: Get current session state from SpinLogicHelper
+        public PlayerSessionState GetCurrentSessionState()
+        {
+            return new PlayerSessionState
+            {
+                SpinCounter = spinCounter,
+                TotalBet = _totalBet,
+                TotalWin = _totalWin,
+                HitCount = _hitCount,
+                FreeSpinsAwarded = _freeSpinsAwarded,
+                TotalBonusesTriggered = _totalBonusesTriggered,
+                FreeSpinsRemaining = _freeSpinsRemaining,
+                RecentWins = new List<double>(_recentWins),
+                ConsecutiveLowRtpSpins = _consecutiveLowRtpSpins,
+                ConsecutiveHighRtpSpins = _consecutiveHighRtpSpins,
+                ConsecutiveAboveTargetSpins = _consecutiveAboveTargetSpins
+            };
+        }
+
+
+
         // Malfunction detection is now handled in SlotEvaluationService
 
         // FIXED: Remove hardcoded symbol configs - use GameConfig.Symbols like original SlotEngine
 
-        public (SpinResult Result, string[][] Grid, ReelSet ChosenSet, List<WinningLine> WinningLines) SpinWithReelSets(GameConfig config, int betAmount, List<ReelSet> reelSetsFromDb, double currentRtp = 0, double currentHitRate = 0)
+        public (SpinResult Result, string[][] Grid, ReelSet ChosenSet, List<WinningLine> WinningLines) SpinWithReelSets(GameConfig config, int betAmount, List<ReelSet> reelSetsFromDb, double currentRtp = 0, double currentHitRate = 0, double monetaryBetAmount = 0, double coinValue = 0.10)
         {
             List<ReelSet> healthySets = new();
             bool isFreeSpin = _freeSpinsRemaining > 0;
@@ -306,8 +353,8 @@ namespace BloodSuckersSlot.Api.Controllers
             // REMOVED: Early spin control - allowing natural big wins to occur
             // This allows for more realistic slot game behavior
 
-            _totalBet += betAmount;
-            _totalWin += totalWin;
+            _totalBet += monetaryBetAmount;
+            _totalWin += totalWin * coinValue; // Convert coin wins to monetary wins
 
             if (totalWin > 0)
                 _hitCount++;
@@ -985,6 +1032,26 @@ namespace BloodSuckersSlot.Api.Controllers
             
 // PERFORMANCE: Console.WriteLine removed for speed
         }
+    }
+
+    // 🎯 SESSION STATE MODEL: Represents current state of SpinLogicHelper
+    public class PlayerSessionState
+    {
+        public int SpinCounter { get; set; }
+        public double TotalBet { get; set; }
+        public double TotalWin { get; set; }
+        public int HitCount { get; set; }
+        public int FreeSpinsAwarded { get; set; }
+        public int TotalBonusesTriggered { get; set; }
+        public int FreeSpinsRemaining { get; set; }
+        public List<double> RecentWins { get; set; } = new();
+        public int ConsecutiveLowRtpSpins { get; set; }
+        public int ConsecutiveHighRtpSpins { get; set; }
+        public int ConsecutiveAboveTargetSpins { get; set; }
+        
+        // Calculated properties
+        public double CurrentRtp => TotalBet > 0 ? TotalWin / TotalBet : 0.0;
+        public double CurrentHitRate => SpinCounter > 0 ? (double)HitCount / SpinCounter : 0.0;
     }
 }
 
