@@ -496,34 +496,6 @@ namespace BloodSuckersSlot.Api.Controllers
         {
             if (!reelSets.Any()) return null;
             
-            // 🎯 PROPER RTP BALANCING: Use rolling average instead of cumulative
-            double rollingRtp = CalculateRollingRtp();
-            double rtpTrend = CalculateRtpTrend();
-            
-            Console.WriteLine($"🎯 PROPER BALANCING: Current RTP={currentRtp:P2}, Rolling RTP={rollingRtp:P2}, Trend={rtpTrend:F3}");
-            
-            // 🏠 SMART HOUSE PROTECTION: Based on rolling average and trend
-            if (rollingRtp > config.RtpTarget * 1.05 || (rollingRtp > config.RtpTarget && rtpTrend > 0.01))
-            {
-                Console.WriteLine($"🏠 SMART HOUSE PROTECTION: Rolling RTP {rollingRtp:P2} > Target or rising trend");
-                
-                // Use reel sets that will bring RTP down
-                var houseProtectionSets = reelSets
-                    .Where(r => r.ExpectedRtp < config.RtpTarget * 0.9) // Below 79.2%
-                    .OrderBy(r => r.ExpectedRtp)
-                    .Take(100)
-                    .ToList();
-                
-                if (houseProtectionSets.Any())
-                {
-                    Console.WriteLine($"🏠 HOUSE PROTECTION: Using {houseProtectionSets.Count} low RTP reel sets");
-                    return ChooseWeightedByCombinedScore(houseProtectionSets);
-                }
-            }
-            
-            // 🎯 SMART BALANCED SELECTION: Use predictive balancing
-            Console.WriteLine($"🎯 SMART BALANCED SELECTION: Rolling RTP {rollingRtp:P2}, Trend {rtpTrend:F3}");
-            
             // Use weighted selection with predictive balancing
             return ChooseWeightedByCombinedScore(reelSets);
             // use them directly instead of applying additional filtering that might override the aggressive recovery!
