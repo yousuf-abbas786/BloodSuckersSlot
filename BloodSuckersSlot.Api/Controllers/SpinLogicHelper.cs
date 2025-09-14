@@ -141,26 +141,21 @@ namespace BloodSuckersSlot.Api.Controllers
                 reelSets = reelSets.Where(r => r.Name != null && r.Name.StartsWith("MidRtp")).ToList();
             }
 
-            // Calculate weights for all reel sets based on actual ExpectedRtp and EstimatedHitRate values
+            // Calculate improved weights for all reel sets using new formula-based approach
             foreach (var reelSet in reelSets)
             {
-                // RTP weight: closer to target = higher weight
+                // Calculate individual weights using improved formulas
                 double rtpWeight = CalculateRtpWeight(reelSet.ExpectedRtp, config.RtpTarget, currentRtpBeforeSpin);
-                
-                // Hit Rate weight: closer to target = higher weight  
                 double hitRateWeight = CalculateHitRateWeight(reelSet.EstimatedHitRate, config.TargetHitRate, currentHitRateBeforeSpin);
-                
-                // Volatility weight: consider the reel set's impact on current volatility
                 double volatilityWeight = CalculateVolatilityWeight(reelSet, currentVolatility, config);
                 
-                // Combined weight using configurable multipliers
+                // Store individual weights for debugging/monitoring
                 reelSet.RtpWeight = rtpWeight;
                 reelSet.HitWeight = hitRateWeight;
                 
-                // Store combined weight for selection
-                reelSet.CombinedWeight = (rtpWeight * config.RtpWeightMultiplier) + 
-                                        (hitRateWeight * config.HitRateWeightMultiplier) + 
-                                        (volatilityWeight * config.VolatilityWeightMultiplier);
+                // Calculate combined weight using dynamic multipliers
+                reelSet.CombinedWeight = CalculateCombinedWeight(reelSet, currentRtpBeforeSpin, 
+                                                               currentHitRateBeforeSpin, currentVolatility, config);
             }
 
             // Intelligent reel set selection based on current performance
@@ -417,364 +412,20 @@ namespace BloodSuckersSlot.Api.Controllers
             return (result, grid, chosenSet, winningLines);
         }
 
-        // 🏠 ULTRA-AGGRESSIVE HOUSE PROTECTION OVERRIDE: ANY RTP above target = EMERGENCY
-        private ReelSet? CheckHouseProtectionOverride(List<ReelSet> reelSets, double currentRtp, GameConfig config)
-        {
-            // If RTP is ANY amount above target, use ONLY the lowest RTP reel sets
-            if (currentRtp > config.RtpTarget) // Above 88% - ANY AMOUNT!
-            {
-                Console.WriteLine($"🏠 ULTRA-AGGRESSIVE HOUSE PROTECTION OVERRIDE: RTP {currentRtp:P2} > Target {config.RtpTarget:P2} - EMERGENCY LOW RTP ONLY!");
-                
-                // Calculate how far above target we are
-                double excessRtp = currentRtp - config.RtpTarget;
-                double excessPercentage = excessRtp / config.RtpTarget;
-                
-                if (excessPercentage > 0.15) // More than 15% above target (above 101.2%)
-                {
-                    // EXTREME EMERGENCY: Use ONLY the lowest RTP sets
-                    var extremeEmergencySets = reelSets
-                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.4) // 35.2% or lower - EXTREME!
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(30) // Only the absolute lowest RTP sets
-                        .ToList();
-                    
-                    if (extremeEmergencySets.Any())
-                    {
-                        Console.WriteLine($"🏠 EXTREME EMERGENCY OVERRIDE: Using {extremeEmergencySets.Count} extreme low RTP reel sets");
-                        return ChooseWeightedByCombinedScore(extremeEmergencySets);
-                    }
-                }
-                else if (excessPercentage > 0.05) // More than 5% above target (above 92.4%)
-                {
-                    // EMERGENCY: Use low RTP sets
-                    var emergencySets = reelSets
-                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.5) // 44% or lower - EMERGENCY!
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(40) // Only low RTP sets
-                        .ToList();
-                    
-                    if (emergencySets.Any())
-                    {
-                        Console.WriteLine($"🏠 EMERGENCY OVERRIDE: Using {emergencySets.Count} emergency low RTP reel sets");
-                        return ChooseWeightedByCombinedScore(emergencySets);
-                    }
-                }
-                else // Slightly above target (88%-92.4%)
-                {
-                    // FORCED LOW: Use below-target RTP sets
-                    var forcedLowSets = reelSets
-                        .Where(r => r.ExpectedRtp <= config.RtpTarget * 0.7) // 61.6% or lower - FORCED LOW!
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(50) // Below target RTP sets
-                        .ToList();
-                    
-                    if (forcedLowSets.Any())
-                    {
-                        Console.WriteLine($"🏠 FORCED LOW OVERRIDE: Using {forcedLowSets.Count} forced low RTP reel sets");
-                        return ChooseWeightedByCombinedScore(forcedLowSets);
-                    }
-                }
-                
-                // If no suitable low RTP sets found, use the absolute lowest available
-                var overrideFallbackSets = reelSets
-                    .OrderBy(r => r.ExpectedRtp)
-                    .Take(30)
-                    .ToList();
-                
-                if (overrideFallbackSets.Any())
-                {
-                    Console.WriteLine($"🏠 FALLBACK OVERRIDE: Using {overrideFallbackSets.Count} lowest available RTP reel sets");
-                    return ChooseWeightedByCombinedScore(overrideFallbackSets);
-                }
-            }
-            
-            return null; // No override needed
-        }
 
-        // 🎯 PROPER RTP BALANCING: Uses rolling averages and predictive balancing
-        private ReelSet SelectOptimalReelSet(List<ReelSet> reelSets, double currentRtp, double currentHitRate, double currentVolatility, GameConfig config)
+        // 🎯 SIMPLIFIED FORMULA-BASED REELSET SELECTION: Pure weight-based selection
+        private ReelSet SelectOptimalReelSet(List<ReelSet> reelSets, double currentRtp, double currentHitRate, 
+                                           double currentVolatility, GameConfig config)
         {
             if (!reelSets.Any()) return null;
             
-            // Use weighted selection with predictive balancing
-            return ChooseWeightedByCombinedScore(reelSets);
-            // use them directly instead of applying additional filtering that might override the aggressive recovery!
+            // Log selection strategy for monitoring
+            Console.WriteLine($"🎯 FORMULA-BASED SELECTION: {reelSets.Count} reelsets available");
+            Console.WriteLine($"🎯 CURRENT STATE: RTP={currentRtp:P2}, HitRate={currentHitRate:P2}, Volatility={currentVolatility:F2}");
+            Console.WriteLine($"🎯 TARGET: RTP={config.RtpTarget:P2}, HitRate={config.TargetHitRate:P2}");
             
-            // Check if we have a reasonable number of reel sets (indicating pre-filtering worked)
-            if (reelSets.Count >= 50 && reelSets.Count <= 500)
-            {
-                Console.WriteLine($"🎯 USING PRE-FILTERED REEL SETS: {reelSets.Count} sets already optimized for RTP recovery");
-                Console.WriteLine($"🎯 PRE-FILTERED RTP RANGE: {reelSets.Min(r => r.ExpectedRtp):P2} - {reelSets.Max(r => r.ExpectedRtp):P2}");
-                
-                // Use weighted selection from pre-filtered sets
-                return ChooseWeightedByCombinedScore(reelSets);
-            }
-            
-            // Only apply additional filtering if we have too many or too few reel sets
-            Console.WriteLine($"⚠️ LARGE REEL SET COLLECTION: {reelSets.Count} sets - applying additional filtering");
-            
-            // 🚨 ULTRA-AGGRESSIVE HOUSE PROTECTION: ANY RTP above target = FORCED REDUCTION
-            if (currentRtp > config.RtpTarget) // Above 88% - IMMEDIATE FORCED ACTION!
-            {
-                Console.WriteLine($"🚨 ULTRA-AGGRESSIVE HOUSE PROTECTION: RTP {currentRtp:P2} > Target {config.RtpTarget:P2} - FORCING LOW RTP!");
-                
-                // Calculate how far above target we are
-                double excessRtp = currentRtp - config.RtpTarget;
-                double excessPercentage = excessRtp / config.RtpTarget;
-                
-                if (excessPercentage > 0.1) // More than 10% above target (above 96.8%)
-                {
-                    // EMERGENCY REDUCTION: Use ONLY very low RTP sets
-                    var emergencySets = reelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.3 && r.ExpectedRtp <= config.RtpTarget * 0.6) // 26.4%-52.8% - EMERGENCY LOW!
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(80)
-                        .ToList();
-                    
-                    if (emergencySets.Any())
-                    {
-                        Console.WriteLine($"🚨 EMERGENCY REDUCTION: Using {emergencySets.Count} emergency low RTP reel sets");
-                        return ChooseWeightedByCombinedScore(emergencySets);
-                    }
-                }
-                else if (excessPercentage > 0.05) // More than 5% above target (above 92.4%)
-                {
-                    // AGGRESSIVE REDUCTION: Use low RTP sets
-                    var aggressiveSets = reelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.4 && r.ExpectedRtp <= config.RtpTarget * 0.7) // 35.2%-61.6% - LOW!
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(100)
-                        .ToList();
-                    
-                    if (aggressiveSets.Any())
-                    {
-                        Console.WriteLine($"🚨 AGGRESSIVE REDUCTION: Using {aggressiveSets.Count} low RTP reel sets");
-                        return ChooseWeightedByCombinedScore(aggressiveSets);
-                    }
-                }
-                else // Slightly above target (88%-92.4%)
-                {
-                    // FORCED REDUCTION: Use below-target RTP sets
-                    var forcedSets = reelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.5 && r.ExpectedRtp <= config.RtpTarget * 0.8) // 44%-70.4% - BELOW TARGET!
-                        .OrderBy(r => r.ExpectedRtp)
-                        .Take(120)
-                        .ToList();
-                    
-                    if (forcedSets.Any())
-                    {
-                        Console.WriteLine($"🚨 FORCED REDUCTION: Using {forcedSets.Count} below-target RTP reel sets");
-                        return ChooseWeightedByCombinedScore(forcedSets);
-                    }
-                }
-                
-                // If no suitable low RTP sets found, use the absolute lowest available
-                var emergencyFallbackSets = reelSets
-                    .OrderBy(r => r.ExpectedRtp)
-                    .Take(50)
-                    .ToList();
-                
-                if (emergencyFallbackSets.Any())
-                {
-                    Console.WriteLine($"🚨 FALLBACK REDUCTION: Using {emergencyFallbackSets.Count} lowest available RTP reel sets");
-                    return ChooseWeightedByCombinedScore(emergencyFallbackSets);
-                }
-            }
-            
-            // 🚨 FORCE REDUCTION: When RTP has been above target for too many consecutive spins
-            else if (_consecutiveAboveTargetSpins >= 3) // Reduced from 5 to 3 - FASTER ACTION!
-            {
-                Console.WriteLine($"🚨 FORCE REDUCTION: {_consecutiveAboveTargetSpins} consecutive spins above target - FORCING LOW RTP");
-                
-                var forceReductionSets = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.5 && r.ExpectedRtp <= config.RtpTarget * 0.8) // 44%-70.4% - VERY LOW!
-                    .OrderBy(r => r.ExpectedRtp)
-                    .Take(100)
-                    .ToList();
-                
-                if (forceReductionSets.Any())
-                {
-                    Console.WriteLine($"🚨 FORCE REDUCTION: Using {forceReductionSets.Count} very low RTP reel sets");
-                    return ChooseWeightedByCombinedScore(forceReductionSets);
-                }
-            }
-            
-            // 🚨 CONSERVATIVE EMERGENCY RECOVERY: When RTP is extremely low (< 30% of target)
-            else if (currentRtp < config.RtpTarget * 0.3) // Below 26.4%
-            {
-                Console.WriteLine($"🚨 CONSERVATIVE EMERGENCY: RTP {currentRtp:P2} < {config.RtpTarget * 0.3:P2} - FORCING MODERATE HIGH RTP");
-                
-                var emergencySets = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 1.0 && r.ExpectedRtp <= config.RtpTarget * 1.2) // 88%-105.6% - CONTROLLED!
-                    .OrderByDescending(r => r.ExpectedRtp)
-                    .Take(100) // Reasonable number of sets
-                    .ToList();
-                
-                if (emergencySets.Any())
-                {
-                    Console.WriteLine($"🚨 CONSERVATIVE EMERGENCY: Using {emergencySets.Count} controlled high RTP reel sets");
-                    return ChooseWeightedByCombinedScore(emergencySets);
-                }
-            }
-            
-            // 🚨 MODERATE EMERGENCY RECOVERY: When RTP is critically low (< 50% of target)
-            else if (currentRtp < config.RtpTarget * 0.5) // Below 44%
-            {
-                Console.WriteLine($"🚨 MODERATE EMERGENCY: RTP {currentRtp:P2} < {config.RtpTarget * 0.5:P2} - FORCING GOOD RTP");
-                
-                var emergencySets = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.9 && r.ExpectedRtp <= config.RtpTarget * 1.15) // 79.2%-101.2% - CONTROLLED!
-                    .OrderByDescending(r => r.ExpectedRtp)
-                    .Take(150) // More variety but still controlled
-                    .ToList();
-                
-                if (emergencySets.Any())
-                {
-                    Console.WriteLine($"🚨 MODERATE EMERGENCY: Using {emergencySets.Count} controlled good RTP reel sets");
-                    return ChooseWeightedByCombinedScore(emergencySets);
-                }
-            }
-            
-            // 📈 CONSERVATIVE RECOVERY: When RTP is low (< 80% of target)
-            else if (currentRtp < config.RtpTarget * 0.8) // Below 70.4%
-            {
-                Console.WriteLine($"📈 CONSERVATIVE RECOVERY: RTP {currentRtp:P2} < {config.RtpTarget * 0.8:P2} - GRADUAL IMPROVEMENT");
-                
-                var recoverySets = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.85 && r.ExpectedRtp <= config.RtpTarget * 1.1) // 74.8%-96.8% - CONTROLLED!
-                    .OrderByDescending(r => r.ExpectedRtp)
-                    .Take(200) // More variety for gradual recovery
-                    .ToList();
-                
-                if (recoverySets.Any())
-                {
-                    Console.WriteLine($"📈 CONSERVATIVE RECOVERY: Using {recoverySets.Count} controlled recovery reel sets");
-                    return ChooseWeightedByCombinedScore(recoverySets);
-                }
-            }
-            
-            // 📈 GRADUAL RECOVERY: When RTP is below target but not critical
-            else if (currentRtp < config.RtpTarget) // Below 88%
-            {
-                Console.WriteLine($"📈 GRADUAL RECOVERY: RTP {currentRtp:P2} < Target {config.RtpTarget:P2}");
-                
-                // Calculate recovery strength based on how far below target
-                double recoveryStrength = (config.RtpTarget - currentRtp) / config.RtpTarget; // 0.0 to 1.0
-                double minRtpThreshold = config.RtpTarget * (0.9 + recoveryStrength * 0.1); // 79.2% to 88%
-                double maxRtpThreshold = config.RtpTarget * (1.0 + recoveryStrength * 0.1); // 88% to 96.8%
-                
-                var recoverySets = reelSets
-                    .Where(r => r.ExpectedRtp >= minRtpThreshold && r.ExpectedRtp <= maxRtpThreshold)
-                    .OrderByDescending(r => r.ExpectedRtp)
-                    .Take(150) // Controlled variety
-                    .ToList();
-                
-                if (recoverySets.Any())
-                {
-                    Console.WriteLine($"📈 GRADUAL RECOVERY: Using {recoverySets.Count} reel sets (range: {minRtpThreshold:P2}-{maxRtpThreshold:P2})");
-                    return ChooseWeightedByCombinedScore(recoverySets);
-                }
-            }
-            
-            // 📉 AGGRESSIVE REDUCTION: When RTP is above target
-            else if (currentRtp > config.RtpTarget * 1.05) // Above 92.4%
-            {
-                Console.WriteLine($"📉 AGGRESSIVE REDUCTION: RTP {currentRtp:P2} > {config.RtpTarget * 1.05:P2}");
-                
-                var reductionSets = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.6 && r.ExpectedRtp <= config.RtpTarget * 0.9) // 52.8%-79.2% - MORE AGGRESSIVE!
-                    .OrderBy(r => r.ExpectedRtp)
-                    .Take(200) // More variety for better reduction
-                    .ToList();
-                
-                if (reductionSets.Any())
-                {
-                    Console.WriteLine($"📉 AGGRESSIVE REDUCTION: Using {reductionSets.Count} low RTP reel sets");
-                    return ChooseWeightedByCombinedScore(reductionSets);
-                }
-            }
-            
-            // 📉 MODERATE REDUCTION: When RTP is slightly above target
-            else if (currentRtp > config.RtpTarget) // Above 88%
-            {
-                Console.WriteLine($"📉 MODERATE REDUCTION: RTP {currentRtp:P2} > Target {config.RtpTarget:P2}");
-                
-                var reductionSets = reelSets
-                    .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.7 && r.ExpectedRtp <= config.RtpTarget * 0.95) // 61.6%-83.6%
-                    .OrderBy(r => r.ExpectedRtp)
-                    .Take(150)
-                    .ToList();
-                
-                if (reductionSets.Any())
-                {
-                    Console.WriteLine($"📉 MODERATE REDUCTION: Using {reductionSets.Count} moderate low RTP reel sets");
-                    return ChooseWeightedByCombinedScore(reductionSets);
-                }
-            }
-            
-            // 🎯 TARGET CONVERGENCE MODE: RTP is close to target, help it converge
-            else
-            {
-                Console.WriteLine($"🎯 TARGET CONVERGENCE: RTP {currentRtp:P2} close to target {config.RtpTarget:P2}");
-                
-                // Calculate distance from target
-                double distanceFromTarget = Math.Abs(currentRtp - config.RtpTarget) / config.RtpTarget;
-                
-                if (distanceFromTarget < 0.05) // Within 5% of target
-                {
-                    // Very close to target - use balanced selection around target
-                    var convergenceSets = reelSets
-                        .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.85 && r.ExpectedRtp <= config.RtpTarget * 1.05) // 74.8%-92.4%
-                        .OrderBy(r => Math.Abs(r.ExpectedRtp - config.RtpTarget)) // Prefer sets closest to target
-                        .Take(150)
-                        .ToList();
-                    
-                    if (convergenceSets.Any())
-                    {
-                        Console.WriteLine($"🎯 CONVERGENCE: Using {convergenceSets.Count} target-focused reel sets");
-                        return ChooseWeightedByCombinedScore(convergenceSets);
-                    }
-                }
-                else
-                {
-                    // Slightly off target - use controlled volatility
-                    double volatilityFactor = Math.Max(0.5, Math.Min(1.2, currentVolatility));
-                    double rangeWidth = config.RtpTarget * 0.1 * volatilityFactor; // Smaller range
-                    
-                    double minPreferredRtp = Math.Max(config.RtpTarget * 0.8, config.RtpTarget - rangeWidth);
-                    double maxPreferredRtp = Math.Min(config.RtpTarget * 1.05, config.RtpTarget + rangeWidth);
-                    
-                    var balancedSets = reelSets
-                        .Where(r => r.ExpectedRtp >= minPreferredRtp && r.ExpectedRtp <= maxPreferredRtp)
-                        .OrderBy(r => Math.Abs(r.ExpectedRtp - config.RtpTarget)) // Prefer sets closer to target
-                        .Take(150)
-                        .ToList();
-                    
-                    if (balancedSets.Any())
-                    {
-                        Console.WriteLine($"🎯 BALANCED: Using {balancedSets.Count} reel sets (range: {minPreferredRtp:P2}-{maxPreferredRtp:P2})");
-                        return ChooseWeightedByCombinedScore(balancedSets);
-                    }
-                }
-            }
-            
-            // 🔄 CONSERVATIVE FALLBACK: Use controlled reel sets with balanced selection
-            Console.WriteLine($"🔄 CONSERVATIVE FALLBACK: Using controlled reel sets for balanced selection");
-            
-            // Apply strict limits even in fallback
-            var conservativeFallbackSets = reelSets
-                .Where(r => r.ExpectedRtp >= config.RtpTarget * 0.7 && r.ExpectedRtp <= config.RtpTarget * 1.2) // 61.6%-105.6%
-                .OrderByDescending(r => r.ExpectedRtp)
-                .Take(100)
-                .ToList();
-            
-            if (conservativeFallbackSets.Any())
-            {
-                Console.WriteLine($"🔄 CONSERVATIVE FALLBACK: Using {conservativeFallbackSets.Count} controlled reel sets");
-                return ChooseWeightedByCombinedScore(conservativeFallbackSets);
-            }
-            
-            // Last resort: Use any available reel sets but with weighted selection
+            // Use pure weighted selection based on calculated combined weights
+            // The weights already account for RTP, hit rate, and volatility optimization
             return ChooseWeightedByCombinedScore(reelSets);
         }
 
@@ -861,84 +512,101 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
-        // 🚨 ULTRA-AGGRESSIVE HOUSE PROTECTION: RTP weight calculation for immediate house protection
+        // 🎯 IMPROVED RTP WEIGHT CALCULATION: Smooth gradients with adaptive scaling
         private double CalculateRtpWeight(double expectedRtp, double targetRtp, double currentRtp)
         {
-            // If current RTP is above target, HEAVILY penalize ANY reel set that keeps it high
-            if (currentRtp > targetRtp)
-            {
-                if (expectedRtp <= targetRtp) // This reel set will bring RTP down - MAXIMUM BONUS
-                {
-                    double reductionFactor = (currentRtp - expectedRtp) / currentRtp;
-                    return 3.0 + reductionFactor; // 3.0 to 4.0 - MAXIMUM BONUS!
-                }
-                else if (expectedRtp < currentRtp) // This reel set reduces RTP but stays above target - HIGH BONUS
-                {
-                    double reductionFactor = (currentRtp - expectedRtp) / currentRtp;
-                    return 2.0 + reductionFactor; // 2.0 to 3.0 - HIGH BONUS
-                }
-                else // This reel set keeps or increases RTP above target - MAXIMUM PENALTY
-                {
-                    double penaltyFactor = (expectedRtp - currentRtp) / currentRtp;
-                    return Math.Max(0.001, 0.1 - penaltyFactor); // 0.001 to 0.1 - MAXIMUM PENALTY!
-                }
+            double rtpDistance = Math.Abs(expectedRtp - targetRtp);
+            double currentDistance = Math.Abs(currentRtp - targetRtp);
+            
+            // Adaptive scaling factor based on how far off target we are
+            double urgencyFactor = Math.Min(3.0, currentDistance / (targetRtp * 0.1)); // 1.0 to 3.0
+            
+            // Direction preference: favor reelsets that move us toward target
+            double directionFactor = 1.0;
+            if (currentRtp < targetRtp && expectedRtp > currentRtp) {
+                directionFactor = 1.5; // Bonus for moving up toward target
+            } else if (currentRtp > targetRtp && expectedRtp < currentRtp) {
+                directionFactor = 1.5; // Bonus for moving down toward target
             }
-            // If current RTP is below target, normal logic applies
-            else
-            {
-                double currentDistance = Math.Abs(currentRtp - targetRtp);
-                double expectedDistance = Math.Abs(expectedRtp - targetRtp);
-                
-                if (expectedDistance < currentDistance)
-                {
-                    double improvementFactor = (currentDistance - expectedDistance) / currentDistance;
-                    return 1.0 + improvementFactor; // 1.0 to 2.0
-                }
-                else if (expectedDistance == currentDistance)
-                {
-                    return 1.0;
-                }
-                else
-                {
-                    double penaltyFactor = (expectedDistance - currentDistance) / currentDistance;
-                    return Math.Max(0.1, 1.0 - penaltyFactor); // 0.1 to 1.0
-                }
-            }
+            
+            // Smooth gradient weight calculation using exponential decay
+            double baseWeight = Math.Exp(-rtpDistance * urgencyFactor);
+            return baseWeight * directionFactor;
         }
 
-        // NEW: Hit rate weight calculation based on actual values
+        // 🎯 ENHANCED HIT RATE WEIGHT CALCULATION: Adaptive scaling with direction preference
         private double CalculateHitRateWeight(double estimatedHitRate, double targetHitRate, double currentHitRate)
         {
-            // If we're below target, favor reel sets closer to target
-            if (currentHitRate < targetHitRate * 0.8)
-            {
-                double diff = Math.Abs(estimatedHitRate - targetHitRate);
-                return 1.0 / (diff + 0.01);
+            double hitRateDistance = Math.Abs(estimatedHitRate - targetHitRate);
+            
+            // Adaptive scaling based on current hit rate performance
+            double currentHitRateDistance = Math.Abs(currentHitRate - targetHitRate);
+            double hitRateUrgency = Math.Min(2.0, currentHitRateDistance / (targetHitRate * 0.2));
+            
+            // Direction preference for hit rate
+            double directionFactor = 1.0;
+            if (currentHitRate < targetHitRate && estimatedHitRate > currentHitRate) {
+                directionFactor = 1.3; // Bonus for moving up toward target
+            } else if (currentHitRate > targetHitRate && estimatedHitRate < currentHitRate) {
+                directionFactor = 1.3; // Bonus for moving down toward target
             }
-            // If we're above target, favor reel sets closer to target
-            else
-            {
-                double diff = Math.Abs(estimatedHitRate - targetHitRate);
-                return 1.0 / (diff + 0.01);
+            
+            // Exponential decay with urgency scaling
+            double baseWeight = Math.Exp(-hitRateDistance * hitRateUrgency);
+            return baseWeight * directionFactor;
+        }
+
+        // 🎯 SOPHISTICATED VOLATILITY WEIGHT CALCULATION: Advanced volatility management
+        private double CalculateVolatilityWeight(ReelSet reelSet, double currentVolatility, GameConfig config)
+        {
+            // Calculate expected volatility impact of this reelset using Euclidean distance
+            double rtpContribution = Math.Abs(reelSet.ExpectedRtp - config.RtpTarget);
+            double hitRateContribution = Math.Abs(reelSet.EstimatedHitRate - config.TargetHitRate);
+            double expectedVolatilityImpact = Math.Sqrt(rtpContribution * rtpContribution + 
+                                                      hitRateContribution * hitRateContribution);
+            
+            // Volatility management strategy
+            if (currentVolatility > config.VolatilityThreshold) {
+                // High volatility: strongly favor stabilizing reelsets
+                double stabilizationFactor = Math.Max(0.1, 1.0 - expectedVolatilityImpact);
+                return Math.Exp(-expectedVolatilityImpact * 2.0) * stabilizationFactor;
+            } else {
+                // Low volatility: allow controlled variation
+                double variationFactor = Math.Min(2.0, expectedVolatilityImpact);
+                return Math.Exp(-expectedVolatilityImpact * 0.5) * variationFactor;
             }
         }
 
-        // NEW: Volatility weight calculation
-        private double CalculateVolatilityWeight(ReelSet reelSet, double currentVolatility, GameConfig config)
+        // 🎯 COMBINED WEIGHT FORMULA: Dynamic multipliers with adaptive scaling
+        private double CalculateCombinedWeight(ReelSet reelSet, double currentRtp, double currentHitRate, 
+                                             double currentVolatility, GameConfig config)
         {
-            // Estimate this reel set's volatility impact
-            double estimatedVolatility = Math.Abs(reelSet.ExpectedRtp - config.RtpTarget) + Math.Abs(reelSet.EstimatedHitRate - config.TargetHitRate);
+            double rtpWeight = CalculateRtpWeight(reelSet.ExpectedRtp, config.RtpTarget, currentRtp);
+            double hitRateWeight = CalculateHitRateWeight(reelSet.EstimatedHitRate, config.TargetHitRate, currentHitRate);
+            double volatilityWeight = CalculateVolatilityWeight(reelSet, currentVolatility, config);
             
-            // If current volatility is high, favor more stable reel sets
-            if (currentVolatility > config.VolatilityThreshold)
-            {
-                return 1.0 / (estimatedVolatility + 0.01);
-            }
-            // If current volatility is low, allow some variation
-            else
-            {
-                return 1.0 / (estimatedVolatility + 0.01);
-            }
+            // Dynamic multiplier adjustment based on current state
+            double rtpMultiplier = config.RtpWeightMultiplier;
+            double hitRateMultiplier = config.HitRateWeightMultiplier;
+            double volatilityMultiplier = config.VolatilityWeightMultiplier;
+            
+            // Adjust multipliers based on how far off target we are
+            double rtpDeviation = Math.Abs(currentRtp - config.RtpTarget) / config.RtpTarget;
+            double hitRateDeviation = Math.Abs(currentHitRate - config.TargetHitRate) / config.TargetHitRate;
+            
+            if (rtpDeviation > 0.1) rtpMultiplier *= 1.5; // Increase RTP importance when far off
+            if (hitRateDeviation > 0.2) hitRateMultiplier *= 1.3; // Increase hit rate importance when far off
+            if (currentVolatility > config.VolatilityThreshold) volatilityMultiplier *= 1.4; // Increase volatility importance when high
+            
+            // Normalize multipliers to maintain proportions
+            double totalMultiplier = rtpMultiplier + hitRateMultiplier + volatilityMultiplier;
+            rtpMultiplier /= totalMultiplier;
+            hitRateMultiplier /= totalMultiplier;
+            volatilityMultiplier /= totalMultiplier;
+            
+            return (rtpWeight * rtpMultiplier) + 
+                   (hitRateWeight * hitRateMultiplier) + 
+                   (volatilityWeight * volatilityMultiplier);
         }
 
         // 🚀 CRITICAL FIX: Sync SpinLogicHelper with existing session data
