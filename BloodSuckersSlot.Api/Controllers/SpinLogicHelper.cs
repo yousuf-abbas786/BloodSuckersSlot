@@ -250,7 +250,7 @@ namespace BloodSuckersSlot.Api.Controllers
             var wildWin = SlotEvaluationService.EvaluateWildLineWinsWithLines(grid, config.Paylines, config.Symbols, out var wildWinningLines);
             var scatterWin = SlotEvaluationService.EvaluateScattersWithLines(grid, config.Symbols, isFreeSpin, out var scatterWinningLines, out var scatterCount, betAmount);
 
-            // FIXED: Handle free spin triggering from scatter evaluation
+            // Handle free spin triggering from scatter evaluation
             int freeSpinsAwarded = 0;
             if (scatterCount >= 3 && !isFreeSpin)
             {
@@ -433,6 +433,14 @@ namespace BloodSuckersSlot.Api.Controllers
             Console.WriteLine($"🎯 CURRENT STATE: RTP={currentRtp:P2}, HitRate={currentHitRate:P2}, Volatility={currentVolatility:F2}");
             Console.WriteLine($"🎯 TARGET: RTP={config.RtpTarget:P2}, HitRate={config.TargetHitRate:P2}");
             
+            // Log free spin opportunity status
+            int spinsSinceLastFreeSpin = spinCounter - _lastFreeSpinOpportunitySpin;
+            Console.WriteLine($"🎰 FREE SPIN STATUS: {spinsSinceLastFreeSpin} spins since last opportunity, {_totalFreeSpinsAwarded} total free spins awarded");
+            
+            // Log very high RTP reelsets availability
+            var veryHighRtpSets = reelSets.Where(r => r.ExpectedRtp > config.RtpTarget * 1.2).ToList();
+            Console.WriteLine($"🎰 VERY HIGH RTP SETS: {veryHighRtpSets.Count} reelsets with RTP > {config.RtpTarget * 1.2:P2} available");
+            
             // Use pure weighted selection based on calculated combined weights
             // The weights already account for RTP, hit rate, and volatility optimization
             return ChooseWeightedByCombinedScore(reelSets);
@@ -530,14 +538,14 @@ namespace BloodSuckersSlot.Api.Controllers
             // Adaptive scaling factor based on how far off target we are
             double urgencyFactor = Math.Min(3.0, currentDistance / (targetRtp * 0.1)); // 1.0 to 3.0
             
-            // FREE SPIN CONSIDERATION: Allow some high RTP reelsets for scatter combinations
+            // FREE SPIN CONSIDERATION: Allow very high RTP reelsets for scatter combinations
             double freeSpinFactor = 1.0;
-            if (expectedRtp > targetRtp * 1.1) // High RTP reelsets (above 96.8% for 88% target)
+            if (expectedRtp > targetRtp * 1.2) // Very high RTP reelsets (above 105.6% for 88% target)
             {
-                // Add periodic chance for high RTP reelsets to allow free spins
+                // Add periodic chance for very high RTP reelsets to allow free spins
                 // This ensures scatter combinations can occur naturally
-                double highRtpChance = Math.Max(0.1, 0.3 - (currentRtp - targetRtp) / targetRtp);
-                freeSpinFactor = 1.0 + highRtpChance; // 1.0 to 1.3 bonus for high RTP reelsets
+                double highRtpChance = Math.Max(0.2, 0.5 - (currentRtp - targetRtp) / targetRtp);
+                freeSpinFactor = 1.0 + highRtpChance; // 1.0 to 1.5 bonus for very high RTP reelsets
             }
             
             // Direction preference: favor reelsets that move us toward target
@@ -634,7 +642,7 @@ namespace BloodSuckersSlot.Api.Controllers
             return combinedWeight * freeSpinBonus;
         }
         
-        // 🎰 FREE SPIN BONUS CALCULATION: Encourage reelsets that can trigger free spins
+        // 🎰 FREE SPIN BONUS CALCULATION: Encourage very high RTP reelsets for scatter combinations
         private double CalculateFreeSpinBonus(ReelSet reelSet, double currentRtp, GameConfig config)
         {
             // Check if this reelset has potential for scatter combinations
@@ -644,14 +652,20 @@ namespace BloodSuckersSlot.Api.Controllers
             
             // Calculate how long it's been since last free spin opportunity
             int spinsSinceLastFreeSpin = spinCounter - _lastFreeSpinOpportunitySpin;
-            double freeSpinUrgency = Math.Min(2.0, spinsSinceLastFreeSpin / 50.0); // Increase urgency after 50+ spins
+            double freeSpinUrgency = Math.Min(3.0, spinsSinceLastFreeSpin / 30.0); // Increase urgency after 30+ spins
             
-            // Allow more high RTP reelsets when we need free spin opportunities
-            if (reelSet.ExpectedRtp > config.RtpTarget * 1.05) // Above 92.4% for 88% target
+            // Allow very high RTP reelsets when we need free spin opportunities
+            if (reelSet.ExpectedRtp > config.RtpTarget * 1.2) // Above 105.6% for 88% target (very high RTP)
             {
-                // Bonus for high RTP reelsets when we need free spins
-                double bonusFactor = 1.0 + (freeSpinUrgency * 0.3); // 1.0 to 1.6 bonus
-                return Math.Min(bonusFactor, 1.6); // Cap the bonus
+                // Strong bonus for very high RTP reelsets when we need free spins
+                double bonusFactor = 1.0 + (freeSpinUrgency * 0.5); // 1.0 to 2.5 bonus
+                return Math.Min(bonusFactor, 2.5); // Cap the bonus at 2.5x
+            }
+            else if (reelSet.ExpectedRtp > config.RtpTarget * 1.1) // Above 96.8% for 88% target (high RTP)
+            {
+                // Moderate bonus for high RTP reelsets when we need free spins
+                double bonusFactor = 1.0 + (freeSpinUrgency * 0.2); // 1.0 to 1.6 bonus
+                return Math.Min(bonusFactor, 1.6); // Cap the bonus at 1.6x
             }
             
             return 1.0; // No bonus for other reelsets
@@ -664,24 +678,31 @@ namespace BloodSuckersSlot.Api.Controllers
             
             // Count scatter symbols in visible positions (first 3 positions of each reel)
             int scatterCount = 0;
+            int reelsWithScatters = 0;
+            
             for (int col = 0; col < Math.Min(5, reelSet.Reels.Count); col++)
             {
                 var reel = reelSet.Reels[col];
                 if (reel != null && reel.Count >= 3)
                 {
+                    bool reelHasScatter = false;
                     // Check first 3 positions (visible area)
                     for (int pos = 0; pos < Math.Min(3, reel.Count); pos++)
                     {
                         if (reel[pos] == "SYM0") // SYM0 is scatter symbol
                         {
                             scatterCount++;
+                            reelHasScatter = true;
                         }
                     }
+                    if (reelHasScatter) reelsWithScatters++;
                 }
             }
             
-            // Consider it has scatter potential if there are at least 2 scatter symbols visible
-            return scatterCount >= 2;
+            // Consider it has scatter potential if:
+            // 1. At least 3 scatter symbols visible (can trigger free spins), OR
+            // 2. At least 2 scatter symbols across multiple reels (good potential)
+            return scatterCount >= 3 || (scatterCount >= 2 && reelsWithScatters >= 2);
         }
 
         // 🚀 CRITICAL FIX: Sync SpinLogicHelper with existing session data
