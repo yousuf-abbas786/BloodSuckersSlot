@@ -531,7 +531,7 @@ namespace BloodSuckersSlot.Api.Controllers
             
             // Smooth gradient weight calculation using exponential decay
             double baseWeight = Math.Exp(-rtpDistance * urgencyFactor);
-            return baseWeight * directionFactor;
+            return baseWeight * directionFactor * freeSpinFactor;
         }
 
         // 🎯 ENHANCED HIT RATE WEIGHT CALCULATION: Adaptive scaling with direction preference
