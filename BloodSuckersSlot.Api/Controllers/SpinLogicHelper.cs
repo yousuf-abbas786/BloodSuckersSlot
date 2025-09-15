@@ -56,6 +56,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private int _consecutiveLowRtpSpins = 0;
         private int _consecutiveHighRtpSpins = 0;
         private int _consecutiveAboveTargetSpins = 0; // Track spins above target
+        private int _lastFreeSpinOpportunitySpin = 0; // Track last spin when free spin opportunity occurred
 
         // Constructor for Dependency Injection
         public SpinLogicHelper(ILogger<SpinLogicHelper> logger)
@@ -103,7 +104,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 RecentWins = new List<double>(_recentWins),
                 ConsecutiveLowRtpSpins = _consecutiveLowRtpSpins,
                 ConsecutiveHighRtpSpins = _consecutiveHighRtpSpins,
-                ConsecutiveAboveTargetSpins = _consecutiveAboveTargetSpins
+                ConsecutiveAboveTargetSpins = _consecutiveAboveTargetSpins,
+                LastFreeSpinOpportunitySpin = _lastFreeSpinOpportunitySpin
             };
         }
 
@@ -271,8 +273,15 @@ namespace BloodSuckersSlot.Api.Controllers
                     _freeSpinsRemaining += freeSpinsAwarded;
                     _freeSpinsAwarded += freeSpinsAwarded;
                     _totalFreeSpinsAwarded += freeSpinsAwarded;
-// PERFORMANCE: Console.WriteLine removed for speed
+                    _lastFreeSpinOpportunitySpin = spinCounter; // Track when free spins were triggered
+                    Console.WriteLine($"🎰 FREE SPINS TRIGGERED: {scatterCount} scatters => +{freeSpinsAwarded} free spins");
                 }
+            }
+            
+            // Track scatter opportunities even if not enough for free spins
+            if (scatterCount >= 2 && !isFreeSpin)
+            {
+                _lastFreeSpinOpportunitySpin = spinCounter; // Track scatter opportunities
             }
 
             // FIXED: Remove duplicate wins - if a symbol is processed by wild evaluation, remove it from line evaluation
@@ -512,7 +521,7 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
-        // 🎯 IMPROVED RTP WEIGHT CALCULATION: Smooth gradients with adaptive scaling
+        // 🎯 IMPROVED RTP WEIGHT CALCULATION: Smooth gradients with free spin consideration
         private double CalculateRtpWeight(double expectedRtp, double targetRtp, double currentRtp)
         {
             double rtpDistance = Math.Abs(expectedRtp - targetRtp);
@@ -520,6 +529,16 @@ namespace BloodSuckersSlot.Api.Controllers
             
             // Adaptive scaling factor based on how far off target we are
             double urgencyFactor = Math.Min(3.0, currentDistance / (targetRtp * 0.1)); // 1.0 to 3.0
+            
+            // FREE SPIN CONSIDERATION: Allow some high RTP reelsets for scatter combinations
+            double freeSpinFactor = 1.0;
+            if (expectedRtp > targetRtp * 1.1) // High RTP reelsets (above 96.8% for 88% target)
+            {
+                // Add periodic chance for high RTP reelsets to allow free spins
+                // This ensures scatter combinations can occur naturally
+                double highRtpChance = Math.Max(0.1, 0.3 - (currentRtp - targetRtp) / targetRtp);
+                freeSpinFactor = 1.0 + highRtpChance; // 1.0 to 1.3 bonus for high RTP reelsets
+            }
             
             // Direction preference: favor reelsets that move us toward target
             double directionFactor = 1.0;
@@ -577,13 +596,16 @@ namespace BloodSuckersSlot.Api.Controllers
             }
         }
 
-        // 🎯 COMBINED WEIGHT FORMULA: Dynamic multipliers with adaptive scaling
+        // 🎯 COMBINED WEIGHT FORMULA: Dynamic multipliers with free spin consideration
         private double CalculateCombinedWeight(ReelSet reelSet, double currentRtp, double currentHitRate, 
                                              double currentVolatility, GameConfig config)
         {
             double rtpWeight = CalculateRtpWeight(reelSet.ExpectedRtp, config.RtpTarget, currentRtp);
             double hitRateWeight = CalculateHitRateWeight(reelSet.EstimatedHitRate, config.TargetHitRate, currentHitRate);
             double volatilityWeight = CalculateVolatilityWeight(reelSet, currentVolatility, config);
+            
+            // FREE SPIN OPPORTUNITY BONUS: Encourage scatter combinations
+            double freeSpinBonus = CalculateFreeSpinBonus(reelSet, currentRtp, config);
             
             // Dynamic multiplier adjustment based on current state
             double rtpMultiplier = config.RtpWeightMultiplier;
@@ -604,9 +626,62 @@ namespace BloodSuckersSlot.Api.Controllers
             hitRateMultiplier /= totalMultiplier;
             volatilityMultiplier /= totalMultiplier;
             
-            return (rtpWeight * rtpMultiplier) + 
-                   (hitRateWeight * hitRateMultiplier) + 
-                   (volatilityWeight * volatilityMultiplier);
+            double combinedWeight = (rtpWeight * rtpMultiplier) + 
+                                   (hitRateWeight * hitRateMultiplier) + 
+                                   (volatilityWeight * volatilityMultiplier);
+            
+            // Apply free spin bonus
+            return combinedWeight * freeSpinBonus;
+        }
+        
+        // 🎰 FREE SPIN BONUS CALCULATION: Encourage reelsets that can trigger free spins
+        private double CalculateFreeSpinBonus(ReelSet reelSet, double currentRtp, GameConfig config)
+        {
+            // Check if this reelset has potential for scatter combinations
+            bool hasScatterPotential = HasScatterPotential(reelSet);
+            
+            if (!hasScatterPotential) return 1.0; // No bonus for reelsets without scatter potential
+            
+            // Calculate how long it's been since last free spin opportunity
+            int spinsSinceLastFreeSpin = spinCounter - _lastFreeSpinOpportunitySpin;
+            double freeSpinUrgency = Math.Min(2.0, spinsSinceLastFreeSpin / 50.0); // Increase urgency after 50+ spins
+            
+            // Allow more high RTP reelsets when we need free spin opportunities
+            if (reelSet.ExpectedRtp > config.RtpTarget * 1.05) // Above 92.4% for 88% target
+            {
+                // Bonus for high RTP reelsets when we need free spins
+                double bonusFactor = 1.0 + (freeSpinUrgency * 0.3); // 1.0 to 1.6 bonus
+                return Math.Min(bonusFactor, 1.6); // Cap the bonus
+            }
+            
+            return 1.0; // No bonus for other reelsets
+        }
+        
+        // 🔍 SCATTER POTENTIAL DETECTION: Check if reelset can produce scatter combinations
+        private bool HasScatterPotential(ReelSet reelSet)
+        {
+            if (reelSet?.Reels == null) return false;
+            
+            // Count scatter symbols in visible positions (first 3 positions of each reel)
+            int scatterCount = 0;
+            for (int col = 0; col < Math.Min(5, reelSet.Reels.Count); col++)
+            {
+                var reel = reelSet.Reels[col];
+                if (reel != null && reel.Count >= 3)
+                {
+                    // Check first 3 positions (visible area)
+                    for (int pos = 0; pos < Math.Min(3, reel.Count); pos++)
+                    {
+                        if (reel[pos] == "SYM0") // SYM0 is scatter symbol
+                        {
+                            scatterCount++;
+                        }
+                    }
+                }
+            }
+            
+            // Consider it has scatter potential if there are at least 2 scatter symbols visible
+            return scatterCount >= 2;
         }
 
         // 🚀 CRITICAL FIX: Sync SpinLogicHelper with existing session data
@@ -669,6 +744,7 @@ namespace BloodSuckersSlot.Api.Controllers
             _consecutiveLowRtpSpins = 0;
             _consecutiveHighRtpSpins = 0;
             _consecutiveAboveTargetSpins = 0;
+            _lastFreeSpinOpportunitySpin = 0;
             
 // PERFORMANCE: Console.WriteLine removed for speed
         }
@@ -688,6 +764,7 @@ namespace BloodSuckersSlot.Api.Controllers
         public int ConsecutiveLowRtpSpins { get; set; }
         public int ConsecutiveHighRtpSpins { get; set; }
         public int ConsecutiveAboveTargetSpins { get; set; }
+        public int LastFreeSpinOpportunitySpin { get; set; }
         
         // Calculated properties
         public double CurrentRtp => TotalBet > 0 ? TotalWin / TotalBet : 0.0;
