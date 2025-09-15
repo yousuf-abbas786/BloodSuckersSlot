@@ -23,7 +23,6 @@ namespace BloodSuckersSlot.Api.Services
         private readonly IReelSetCacheService _reelSetCacheService;
         private readonly GameConfig _config;
         private readonly IHubContext<RtpHub> _hubContext;
-
         public AutoSpinService(ILogger<AutoSpinService> logger, IServiceProvider serviceProvider,
             PerformanceSettings performanceSettings, IReelSetCacheService reelSetCacheService, 
             IConfiguration configuration, IHubContext<RtpHub> hubContext)
@@ -236,8 +235,9 @@ namespace BloodSuckersSlot.Api.Services
                                         TotalSpins = updatedSession.TotalSpins,
                                         ChosenReelSetName = chosenSet.Name,
                                         ChosenReelSetExpectedRtp = chosenSet.ExpectedRtp,
-                                        TotalFreeSpinsAwarded = result.FreeSpinsAwarded,
-                                        TotalBonusesTriggered = result.BonusTriggered ? 1 : 0
+                                        // 🚨 CRITICAL FIX: Use session totals, not individual spin results
+                                        TotalFreeSpinsAwarded = updatedSession.FreeSpinsAwarded, // Total free spins awarded in session
+                                        TotalBonusesTriggered = updatedSession.BonusesTriggered  // Total bonuses triggered in session
                                     };
 
                                     await _hubContext.Clients.All.SendAsync("ReceiveRtpUpdate", rtpUpdate);

@@ -9,6 +9,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using BloodSuckersSlot.Api.Services;
 using BloodSuckersSlot.Api.Models;
+using Microsoft.AspNetCore.SignalR;
 
 namespace BloodSuckersSlot.Api.Controllers
 {
@@ -25,6 +26,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly IReelSetCacheService _reelSetCacheService;
         private readonly IGlobalRtpBalancingService _globalRtpBalancingService;
         private readonly ISessionPreloadService _sessionPreloadService;
+        private readonly IHubContext<RtpHub> _hubContext;
         
         // 🚀 SESSION CACHING for ultra-fast spins
         private readonly Dictionary<string, PlayerSessionResponse> _sessionCache = new();
@@ -38,7 +40,7 @@ namespace BloodSuckersSlot.Api.Controllers
         private readonly SpinLogicHelper _spinLogicHelper;
 
         public SpinController(IConfiguration configuration, ILogger<SpinController> logger, 
-            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService, IGlobalRtpBalancingService globalRtpBalancingService, ISessionPreloadService sessionPreloadService, SpinLogicHelper spinLogicHelper)
+            PerformanceSettings performanceSettings, AutoSpinService autoSpinService, IPlayerSessionService playerSessionService, IPlayerSpinSessionService playerSpinSessionService, IReelSetCacheService reelSetCacheService, IGlobalRtpBalancingService globalRtpBalancingService, ISessionPreloadService sessionPreloadService, SpinLogicHelper spinLogicHelper, IHubContext<RtpHub> hubContext)
         {
             var startTime = DateTime.UtcNow;
             
@@ -51,6 +53,7 @@ namespace BloodSuckersSlot.Api.Controllers
             _globalRtpBalancingService = globalRtpBalancingService;
             _sessionPreloadService = sessionPreloadService;
             _spinLogicHelper = spinLogicHelper;
+            _hubContext = hubContext;
             _config = GameConfigLoader.LoadFromConfiguration(configuration);
             
             var initTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
@@ -604,6 +607,22 @@ namespace BloodSuckersSlot.Api.Controllers
                 
                 // 🎯 GET LATEST SESSION STATE: Get updated state from SpinLogicHelper
                 var latestSessionState = playerSpinSession.GetCurrentSessionState();
+                _logger.LogDebug("🎯 LatestSessionState: FreeSpinsAwarded={FreeSpins}, TotalBonusesTriggered={Bonuses}", 
+                    latestSessionState.FreeSpinsAwarded, latestSessionState.TotalBonusesTriggered);
+                
+                // 🔧 FIX: Update the currentSession with session totals from latestSessionState
+                if (currentSession != null)
+                {
+                    _logger.LogDebug("🎯 UPDATING SESSION: Before - FreeSpinsAwarded={OldFreeSpins}, FreeSpinsRemaining={OldRemaining}, BonusesTriggered={OldBonuses}", 
+                        currentSession.FreeSpinsAwarded, currentSession.FreeSpinsRemaining, currentSession.BonusesTriggered);
+                    
+                    currentSession.FreeSpinsAwarded = latestSessionState.FreeSpinsAwarded;
+                    currentSession.FreeSpinsRemaining = latestSessionState.FreeSpinsRemaining;
+                    currentSession.BonusesTriggered = latestSessionState.TotalBonusesTriggered;
+                    
+                    _logger.LogDebug("🎯 UPDATING SESSION: After - FreeSpinsAwarded={NewFreeSpins}, FreeSpinsRemaining={NewRemaining}, BonusesTriggered={NewBonuses}", 
+                        currentSession.FreeSpinsAwarded, currentSession.FreeSpinsRemaining, currentSession.BonusesTriggered);
+                }
                 
                 // Get actual RTP and Hit Rate from the UPDATED session state
                 var actualRtp = latestSessionState.CurrentRtp;
@@ -624,9 +643,23 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     // Update session data in memory for immediate response
                     currentSession.TotalSpins++;
-                    currentSession.TotalBet += totalBet;
+                    // 🚨 CRITICAL FIX: Free spins should not add to total bet
+                    if (!result.IsFreeSpin)
+                    {
+                        currentSession.TotalBet += totalBet; // Only add bet amount for paid spins
+                    }
                     currentSession.TotalWin += monetaryPayout;
-                    currentSession.CurrentBalance = currentSession.CurrentBalance + monetaryPayout - totalBet;
+                    
+                    // 🚨 CRITICAL FIX: Free spins should not deduct bet amount from balance
+                    if (result.IsFreeSpin)
+                    {
+                        currentSession.CurrentBalance = currentSession.CurrentBalance + monetaryPayout; // Only add winnings, no bet deduction
+                    }
+                    else
+                    {
+                        currentSession.CurrentBalance = currentSession.CurrentBalance + monetaryPayout - totalBet; // Normal paid spin
+                    }
+                    
                     currentSession.LastActivity = DateTime.UtcNow;
                     
                     if (winningLines?.Count > 0) 
@@ -691,6 +724,37 @@ namespace BloodSuckersSlot.Api.Controllers
                 _logger.LogInformation("   TOTAL TIME: {TotalTime:F2}ms", totalTime);
                 _logger.LogInformation("   Cache Size: {CacheSize} ranges", _reelSetCacheService.GetCacheSize());
                 _logger.LogInformation("   Reel Sets: {ReelSetsCount} loaded", reelSets.Count);
+
+                // 🚨 CRITICAL FIX: Send RtpUpdate to UI for manual spins (same as auto-spins)
+                try
+                {
+                    var rtpUpdate = new RtpUpdate
+                    {
+                        SpinNumber = currentSession?.TotalSpins ?? 0,
+                        ActualRtp = actualRtp,
+                        TargetRtp = _config.RtpTarget,
+                        ActualHitRate = actualHitRate,
+                        TargetHitRate = _config.TargetHitRate,
+                        Timestamp = DateTime.UtcNow,
+                        SpinTimeSeconds = totalTime / 1000.0, // Convert ms to seconds
+                        AverageSpinTimeSeconds = totalTime / 1000.0,
+                        TotalSpins = currentSession?.TotalSpins ?? 0,
+                        ChosenReelSetName = chosenSet.Name,
+                        ChosenReelSetExpectedRtp = chosenSet.ExpectedRtp,
+                        // 🚨 CRITICAL FIX: Use SpinLogicHelper accumulated totals, not session totals
+                        TotalFreeSpinsAwarded = latestSessionState.FreeSpinsAwarded, // Accumulated free spins in session
+                        TotalBonusesTriggered = latestSessionState.TotalBonusesTriggered  // Accumulated bonuses in session
+                    };
+
+                    await _hubContext.Clients.All.SendAsync("ReceiveRtpUpdate", rtpUpdate);
+                    _logger.LogDebug("📡 Manual spin RTP update sent via SignalR for player {PlayerId}", playerId);
+                    _logger.LogDebug("🎯 RtpUpdate values: TotalFreeSpinsAwarded={FreeSpins}, TotalBonusesTriggered={Bonuses}", 
+                        rtpUpdate.TotalFreeSpinsAwarded, rtpUpdate.TotalBonusesTriggered);
+                }
+                catch (Exception signalREx)
+                {
+                    _logger.LogWarning(signalREx, "⚠️ Failed to send SignalR update for manual spin player {PlayerId}", playerId);
+                }
 
                 return Ok(new
                 {
@@ -972,7 +1036,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     SessionId = session.SessionId,
                     PlayerId = session.PlayerId,
-                    BetAmount = totalBet,
+                    // 🚨 CRITICAL FIX: Free spins should not charge bet amount
+                    BetAmount = result.IsFreeSpin ? 0 : totalBet, // Free spins have no bet amount
                     WinAmount = monetaryPayout,
                     IsWinningSpin = isWinningSpin,
                     IsFreeSpin = result.IsFreeSpin,
@@ -981,7 +1046,11 @@ namespace BloodSuckersSlot.Api.Controllers
                     CurrentBalance = session.CurrentBalance,
                     // 🚨 CRITICAL FIX: Pass the updated TotalSpins and WinningSpins from session
                     TotalSpins = session.TotalSpins,
-                    WinningSpins = session.WinningSpins
+                    WinningSpins = session.WinningSpins,
+                    // 🚨 CRITICAL FIX: Pass session totals for proper database sync
+                    TotalFreeSpinsAwarded = session.FreeSpinsAwarded,
+                    TotalBonusesTriggered = session.BonusesTriggered,
+                    FreeSpinsRemaining = session.FreeSpinsRemaining
                 };
 
                 await _playerSessionService.UpdateSessionStatsAsync(updateRequest);
@@ -1032,13 +1101,17 @@ namespace BloodSuckersSlot.Api.Controllers
                 {
                     SessionId = session.SessionId,
                     PlayerId = playerId,
-                    BetAmount = totalBet,
+                    // 🚨 CRITICAL FIX: Free spins should not charge bet amount
+                    BetAmount = result.IsFreeSpin ? 0 : totalBet, // Free spins have no bet amount
                     WinAmount = monetaryPayout,
                     IsWinningSpin = isWinningSpin,
                     IsFreeSpin = result.IsFreeSpin,
                     IsBonusTriggered = result.BonusTriggered,
                     FreeSpinsAwarded = result.FreeSpinsAwarded,
-                    CurrentBalance = session.CurrentBalance + monetaryPayout - totalBet // Update balance
+                    // 🚨 CRITICAL FIX: Free spins should not deduct bet amount from balance
+                    CurrentBalance = result.IsFreeSpin ? 
+                        session.CurrentBalance + monetaryPayout : // Free spin: only add winnings
+                        session.CurrentBalance + monetaryPayout - totalBet // Paid spin: normal calculation
                 };
 
                 var success = await _playerSessionService.UpdateSessionStatsAsync(updateRequest);

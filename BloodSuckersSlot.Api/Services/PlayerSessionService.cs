@@ -217,15 +217,11 @@ namespace BloodSuckersSlot.Api.Services
                     session.MaxWin = request.WinAmount;
                 }
 
-                if (request.IsFreeSpin)
-                {
-                    session.FreeSpinsAwarded += request.FreeSpinsAwarded;
-                }
-
-                if (request.IsBonusTriggered)
-                {
-                    session.BonusesTriggered++;
-                }
+                // 🚨 CRITICAL FIX: Sync session totals directly from SpinLogicHelper state
+                // The SpinController passes the updated session totals from latestSessionState
+                session.FreeSpinsAwarded = request.TotalFreeSpinsAwarded;
+                session.FreeSpinsRemaining = request.FreeSpinsRemaining;
+                session.BonusesTriggered = request.TotalBonusesTriggered;
 
                 // Calculate RTP and Hit Rate
                 session.TotalRtp = session.TotalBet > 0 ? (double)(session.TotalWin / session.TotalBet) : 0;
@@ -240,6 +236,7 @@ namespace BloodSuckersSlot.Api.Services
                     .Set(s => s.HitRate, session.HitRate)
                     .Set(s => s.WinningSpins, session.WinningSpins)
                     .Set(s => s.FreeSpinsAwarded, session.FreeSpinsAwarded)
+                    .Set(s => s.FreeSpinsRemaining, session.FreeSpinsRemaining) // 🚨 CRITICAL FIX: Sync free spins remaining
                     .Set(s => s.BonusesTriggered, session.BonusesTriggered)
                     .Set(s => s.MaxWin, session.MaxWin)
                     .Set(s => s.CurrentBalance, session.CurrentBalance)
@@ -554,6 +551,7 @@ namespace BloodSuckersSlot.Api.Services
                 HitRate = session.HitRate,
                 WinningSpins = session.WinningSpins,
                 FreeSpinsAwarded = session.FreeSpinsAwarded,
+                FreeSpinsRemaining = session.FreeSpinsRemaining, // 🚨 CRITICAL FIX: Include free spins remaining
                 BonusesTriggered = session.BonusesTriggered,
                 MaxWin = session.MaxWin,
                 CurrentBalance = session.CurrentBalance,

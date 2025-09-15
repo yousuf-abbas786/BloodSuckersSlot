@@ -72,6 +72,7 @@ namespace BloodSuckersSlot.Api.Controllers
             _totalWin = (double)session.TotalWin;
             _hitCount = session.WinningSpins;
             _freeSpinsAwarded = session.FreeSpinsAwarded;
+            _freeSpinsRemaining = session.FreeSpinsRemaining; // 🚨 CRITICAL FIX: Load free spins remaining from session
             _totalBonusesTriggered = session.BonusesTriggered;
             
             // Load recent wins for volatility calculation (simulate from session data)
@@ -92,6 +93,8 @@ namespace BloodSuckersSlot.Api.Controllers
         // 🎯 SESSION STATE MANAGEMENT: Get current session state from SpinLogicHelper
         public PlayerSessionState GetCurrentSessionState()
         {
+            Console.WriteLine($"🎯 GET SESSION STATE: FreeSpinsRemaining={_freeSpinsRemaining}, FreeSpinsAwarded={_freeSpinsAwarded}, TotalFreeSpinsAwarded={_totalFreeSpinsAwarded}");
+            
             return new PlayerSessionState
             {
                 SpinCounter = spinCounter,
@@ -275,6 +278,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     _totalFreeSpinsAwarded += freeSpinsAwarded;
                     _lastFreeSpinOpportunitySpin = spinCounter; // Track when free spins were triggered
                     Console.WriteLine($"🎰 FREE SPINS TRIGGERED: {scatterCount} scatters => +{freeSpinsAwarded} free spins");
+                    Console.WriteLine($"🎰 FREE SPINS STATE: Remaining={_freeSpinsRemaining}, Awarded={_freeSpinsAwarded}, Total={_totalFreeSpinsAwarded}");
                 }
             }
             
@@ -410,9 +414,9 @@ namespace BloodSuckersSlot.Api.Controllers
                 IsFreeSpin = isFreeSpin,
                 BonusTriggered = !string.IsNullOrEmpty(bonusLog),
                 
-                // FIXED: Add free spin and bonus tracking information
+                // 🚨 CRITICAL FIX: Free spins awarded in THIS spin only, not total
                 FreeSpinsRemaining = _freeSpinsRemaining,
-                FreeSpinsAwarded = _freeSpinsAwarded,
+                FreeSpinsAwarded = freeSpinsAwarded, // Only free spins awarded in THIS spin
                 TotalFreeSpinsAwarded = _totalFreeSpinsAwarded,
                 TotalBonusesTriggered = _totalBonusesTriggered,
                 SpinType = isFreeSpin ? "FREE SPIN" : "PAID SPIN"
@@ -620,13 +624,30 @@ namespace BloodSuckersSlot.Api.Controllers
             double hitRateMultiplier = config.HitRateWeightMultiplier;
             double volatilityMultiplier = config.VolatilityWeightMultiplier;
             
-            // Adjust multipliers based on how far off target we are
+            // 🚨 CRITICAL FIX: Prioritize RTP over Hit Rate when far from target
             double rtpDeviation = Math.Abs(currentRtp - config.RtpTarget) / config.RtpTarget;
             double hitRateDeviation = Math.Abs(currentHitRate - config.TargetHitRate) / config.TargetHitRate;
             
-            if (rtpDeviation > 0.1) rtpMultiplier *= 1.5; // Increase RTP importance when far off
-            if (hitRateDeviation > 0.2) hitRateMultiplier *= 1.3; // Increase hit rate importance when far off
-            if (currentVolatility > config.VolatilityThreshold) volatilityMultiplier *= 1.4; // Increase volatility importance when high
+            // Aggressive RTP prioritization when far from target
+            if (rtpDeviation > 0.15) // More than 15% deviation from RTP target
+            {
+                rtpMultiplier *= 3.0; // Triple RTP importance
+                hitRateMultiplier *= 0.3; // Reduce hit rate importance to 30%
+                Console.WriteLine($"🎯 RTP PRIORITY: Deviation={rtpDeviation:P1}, RTP multiplier={rtpMultiplier:F2}, HitRate multiplier={hitRateMultiplier:F2}");
+            }
+            else if (rtpDeviation > 0.1) // More than 10% deviation
+            {
+                rtpMultiplier *= 2.0; // Double RTP importance
+                hitRateMultiplier *= 0.5; // Reduce hit rate importance to 50%
+            }
+            
+            // Only care about hit rate when RTP is close to target
+            if (rtpDeviation <= 0.05 && hitRateDeviation > 0.2) 
+            {
+                hitRateMultiplier *= 1.5; // Increase hit rate importance only when RTP is good
+            }
+            
+            if (currentVolatility > config.VolatilityThreshold) volatilityMultiplier *= 1.4;
             
             // Normalize multipliers to maintain proportions
             double totalMultiplier = rtpMultiplier + hitRateMultiplier + volatilityMultiplier;

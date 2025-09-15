@@ -55,6 +55,9 @@ namespace Shared.Models
         [BsonElement("freeSpinsAwarded")]
         public int FreeSpinsAwarded { get; set; } = 0;
         
+        [BsonElement("freeSpinsRemaining")]
+        public int FreeSpinsRemaining { get; set; } = 0;
+        
         [BsonElement("bonusesTriggered")]
         public int BonusesTriggered { get; set; } = 0;
         
@@ -190,6 +193,11 @@ namespace Shared.Models
         // 🚨 CRITICAL FIX: Add TotalSpins and WinningSpins to preserve session state
         public int TotalSpins { get; set; }
         public int WinningSpins { get; set; }
+        
+        // 🚨 CRITICAL FIX: Add session totals for proper database sync
+        public int TotalFreeSpinsAwarded { get; set; }
+        public int TotalBonusesTriggered { get; set; }
+        public int FreeSpinsRemaining { get; set; }
     }
 
     /// <summary>
@@ -213,6 +221,7 @@ namespace Shared.Models
         public double HitRate { get; set; }
         public int WinningSpins { get; set; }
         public int FreeSpinsAwarded { get; set; }
+        public int FreeSpinsRemaining { get; set; }
         public int BonusesTriggered { get; set; }
         public decimal MaxWin { get; set; }
         public decimal CurrentBalance { get; set; }

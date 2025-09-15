@@ -25,7 +25,7 @@ namespace BloodSuckersSlot.Api.Services
         /// <summary>
         /// Preload player session into cache for faster access
         /// </summary>
-        public async Task<bool> PreloadSessionAsync(string playerId)
+        public async Task<bool> PreloadSessionAsync(string playerId, string username = null)
         {
             try
             {
@@ -50,7 +50,7 @@ namespace BloodSuckersSlot.Api.Services
                     var startRequest = new StartSessionRequest
                     {
                         PlayerId = playerId,
-                        Username = "Unknown", // Will be updated when we have more context
+                        Username = username ?? "Unknown", // Use provided username or default
                         InitialBalance = 1000 // Default balance
                     };
                     session = await _playerSessionService.StartSessionAsync(startRequest);

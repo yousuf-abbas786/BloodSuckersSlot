@@ -11,8 +11,9 @@ namespace BloodSuckersSlot.Api.Services
         /// Preload player session into cache for faster access
         /// </summary>
         /// <param name="playerId">Player ID to preload session for</param>
+        /// <param name="username">Username for the session (optional)</param>
         /// <returns>True if session was successfully preloaded</returns>
-        Task<bool> PreloadSessionAsync(string playerId);
+        Task<bool> PreloadSessionAsync(string playerId, string username = null);
 
         /// <summary>
         /// Get cached session if available

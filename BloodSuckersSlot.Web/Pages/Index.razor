@@ -4,6 +4,7 @@
 @inject RtpSignalRService RtpService
 @inject IConfiguration Configuration
 @inject IJSRuntime JS
+@inject IPlayerSessionService PlayerSessionService
 
 <PageTitle>BloodSuckersSlot - Dashboard</PageTitle>
 
@@ -125,6 +126,22 @@
         rtpTargetData = new() { rtpTarget, rtpTarget, rtpTarget, rtpTarget, rtpTarget };
         hitRateTargetData = new() { hitRateTarget, hitRateTarget, hitRateTarget, hitRateTarget, hitRateTarget };
         
+        // 🚨 CRITICAL FIX: Load initial session values for counters
+        try
+        {
+            var session = await PlayerSessionService.GetCurrentSessionAsync();
+            if (session != null)
+            {
+                totalFreeSpinsAwarded = session.FreeSpinsAwarded;
+                totalBonusesTriggered = session.BonusesTriggered;
+                await JS.InvokeVoidAsync("console.log", $"[Web] Loaded initial session: TotalFreeSpinsAwarded={session.FreeSpinsAwarded}, TotalBonusesTriggered={session.BonusesTriggered}");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.log", $"[Web] Failed to load initial session: {ex.Message}");
+        }
+        
         RtpService.OnRtpUpdate += OnRtpUpdateReceived;
         await RtpService.StartAsync();
     }
@@ -164,6 +181,9 @@
         // Update game feature stats from backend
         totalFreeSpinsAwarded = update.TotalFreeSpinsAwarded;
         totalBonusesTriggered = update.TotalBonusesTriggered;
+        
+        // Debug: Log the values being received
+        await JS.InvokeVoidAsync("console.log", $"[Web] Received RtpUpdate: TotalFreeSpinsAwarded={update.TotalFreeSpinsAwarded}, TotalBonusesTriggered={update.TotalBonusesTriggered}");
         
         // Debug: Log the values being set
         await JS.InvokeVoidAsync("console.log", $"[Web] Setting values: RTP={currentRtp}, HitRate={currentHitRate}, TotalSpins={totalSpins}, AvgTime={avgSpinTime}");

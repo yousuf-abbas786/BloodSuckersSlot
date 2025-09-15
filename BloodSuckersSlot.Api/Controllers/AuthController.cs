@@ -59,7 +59,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 // 🚀 PERFORMANCE: Preload player session after successful login
                 try
                 {
-                    var preloaded = await _sessionPreloadService.PreloadSessionAsync(entity.Id);
+                    var preloaded = await _sessionPreloadService.PreloadSessionAsync(entity.Id, entity.Username);
                     if (preloaded)
                     {
                         _logger.LogInformation("🚀 SESSION PRELOADED: Player {PlayerId} session cached after login", entity.Id);
