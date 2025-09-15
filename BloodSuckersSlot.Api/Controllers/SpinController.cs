@@ -440,6 +440,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 var startTime = DateTime.UtcNow;
                 var stepTime = DateTime.UtcNow;
                 
+                _logger.LogInformation("🚀 SPIN START: Request={@Request}", request);
+                
                 // 🚨 CHECK LOADING STATUS: Block spins until reel sets are loaded
                 if (!_reelSetCacheService.IsFullyLoaded())
                 {
@@ -468,20 +470,21 @@ namespace BloodSuckersSlot.Api.Controllers
                 }
                 
                 var step1Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 1 (Auth + Validation): {Time}ms", step1Time);
                 stepTime = DateTime.UtcNow;
                 
                 // Get or create player-specific spin session (via DI)
                 var playerSpinSession = _spinLogicHelper;
                 
                 var step2Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 2 (Get Spin Session): {Time}ms", step2Time);
                 stepTime = DateTime.UtcNow;
                 
 
                 
                 var step3Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 3 (Empty Step): {Time}ms", step3Time);
                 stepTime = DateTime.UtcNow;
-                
-                //_logger.LogDebug("📊 Player Session Stats: RTP={Rtp:P2}, HitRate={HitRate:P2}", currentRtp, currentHitRate);
                 
                 // Validate bet parameters
                 if (!BettingSystem.ValidateBet(request.Level, request.CoinValue, _config.MaxLevel, _config.MinCoinValue, _config.MaxCoinValue))
@@ -494,6 +497,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 decimal totalBet = BettingSystem.CalculateTotalBet(_config.BaseBetPerLevel, request.Level, request.CoinValue);
                 
                 var step4Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 4 (Bet Validation + Calculation): {Time}ms", step4Time);
                 stepTime = DateTime.UtcNow;
                 
                 // 🚀 TIMEOUT PROTECTION: Add timeout to prevent hanging
@@ -501,6 +505,10 @@ namespace BloodSuckersSlot.Api.Controllers
                 
                 // 🚨 CRITICAL FIX: Get session from cache, fallback to database if needed
                 PlayerSessionResponse? currentSession = await GetCachedSessionAsync(playerId);
+                
+                var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 5 (Session Loading): {Time}ms", step5Time);
+                stepTime = DateTime.UtcNow;
                 
                 // 🚨 DEBUG: Log session state for debugging
                 if (currentSession != null)
@@ -575,7 +583,8 @@ namespace BloodSuckersSlot.Api.Controllers
                 // Use actual reel sets directly - let the engine work naturally
                 List<ReelSet> reelSets = GetInstantReelSets();
                 
-                var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                var step5TimeB = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 5B (Get Reel Sets): {Time}ms", step5TimeB);
                 stepTime = DateTime.UtcNow;
                 
                 // If no cached data, use emergency fallback
@@ -594,6 +603,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 var (result, grid, chosenSet, winningLines) = playerSpinSession.SpinWithReelSets(_config, betInCoins, reelSets, currentRtp, currentHitRate, (double)totalBet, (double)request.CoinValue);
                 
                 var step6Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 6 (MAIN SPIN LOGIC): {Time}ms", step6Time);
                 stepTime = DateTime.UtcNow;
                 
                 if (result == null || grid == null || chosenSet == null)
@@ -607,32 +617,21 @@ namespace BloodSuckersSlot.Api.Controllers
                 
                 // 🎯 GET LATEST SESSION STATE: Get updated state from SpinLogicHelper
                 var latestSessionState = playerSpinSession.GetCurrentSessionState();
-                _logger.LogDebug("🎯 LatestSessionState: FreeSpinsAwarded={FreeSpins}, TotalBonusesTriggered={Bonuses}", 
-                    latestSessionState.FreeSpinsAwarded, latestSessionState.TotalBonusesTriggered);
                 
                 // 🔧 FIX: Update the currentSession with session totals from latestSessionState
                 if (currentSession != null)
                 {
-                    _logger.LogDebug("🎯 UPDATING SESSION: Before - FreeSpinsAwarded={OldFreeSpins}, FreeSpinsRemaining={OldRemaining}, BonusesTriggered={OldBonuses}", 
-                        currentSession.FreeSpinsAwarded, currentSession.FreeSpinsRemaining, currentSession.BonusesTriggered);
-                    
                     currentSession.FreeSpinsAwarded = latestSessionState.FreeSpinsAwarded;
                     currentSession.FreeSpinsRemaining = latestSessionState.FreeSpinsRemaining;
                     currentSession.BonusesTriggered = latestSessionState.TotalBonusesTriggered;
-                    
-                    _logger.LogDebug("🎯 UPDATING SESSION: After - FreeSpinsAwarded={NewFreeSpins}, FreeSpinsRemaining={NewRemaining}, BonusesTriggered={NewBonuses}", 
-                        currentSession.FreeSpinsAwarded, currentSession.FreeSpinsRemaining, currentSession.BonusesTriggered);
                 }
                 
                 // Get actual RTP and Hit Rate from the UPDATED session state
                 var actualRtp = latestSessionState.CurrentRtp;
                 var actualHitRate = latestSessionState.CurrentHitRate;
                 
-                _logger.LogDebug("🎯 SESSION STATE UPDATED: Spins={Spins}, Bet={Bet:F2}, Win={Win:F2}, RTP={Rtp:P2}, HitRate={HitRate:P2}", 
-                    latestSessionState.SpinCounter, latestSessionState.TotalBet, latestSessionState.TotalWin, 
-                    latestSessionState.CurrentRtp, latestSessionState.CurrentHitRate);
-                
                 var step7Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                _logger.LogInformation("⏱️ STEP 7 (Session State Update): {Time}ms", step7Time);
                 stepTime = DateTime.UtcNow;
                 
                 _logger.LogInformation("🎰 SPIN RESULT: Win={Win:C}, Payout={Payout:C}, RTP={Rtp:P2}, HitRate={HitRate:P2}", 
@@ -747,14 +746,20 @@ namespace BloodSuckersSlot.Api.Controllers
                     };
 
                     await _hubContext.Clients.All.SendAsync("ReceiveRtpUpdate", rtpUpdate);
+                    
+                    var step10Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+                    _logger.LogInformation("⏱️ STEP 10 (SignalR Update): {Time}ms", step10Time);
+                    stepTime = DateTime.UtcNow;
+                    
                     _logger.LogDebug("📡 Manual spin RTP update sent via SignalR for player {PlayerId}", playerId);
-                    _logger.LogDebug("🎯 RtpUpdate values: TotalFreeSpinsAwarded={FreeSpins}, TotalBonusesTriggered={Bonuses}", 
-                        rtpUpdate.TotalFreeSpinsAwarded, rtpUpdate.TotalBonusesTriggered);
                 }
                 catch (Exception signalREx)
                 {
                     _logger.LogWarning(signalREx, "⚠️ Failed to send SignalR update for manual spin player {PlayerId}", playerId);
                 }
+
+                var finalTotalTime = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                _logger.LogInformation("🏁 SPIN COMPLETE: Total Time={TotalTime}ms", finalTotalTime);
 
                 return Ok(new
                 {
@@ -1115,6 +1120,7 @@ namespace BloodSuckersSlot.Api.Controllers
                 };
 
                 var success = await _playerSessionService.UpdateSessionStatsAsync(updateRequest);
+                
                 if (success)
                 {
                     _logger.LogInformation("✅ Updated session stats for player {PlayerId}: Bet={Bet:C}, Win={Win:C}, Balance={Balance:C}", 

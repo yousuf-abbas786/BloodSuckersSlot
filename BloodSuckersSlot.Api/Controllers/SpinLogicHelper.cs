@@ -93,8 +93,6 @@ namespace BloodSuckersSlot.Api.Controllers
         // 🎯 SESSION STATE MANAGEMENT: Get current session state from SpinLogicHelper
         public PlayerSessionState GetCurrentSessionState()
         {
-            Console.WriteLine($"🎯 GET SESSION STATE: FreeSpinsRemaining={_freeSpinsRemaining}, FreeSpinsAwarded={_freeSpinsAwarded}, TotalFreeSpinsAwarded={_totalFreeSpinsAwarded}");
-            
             return new PlayerSessionState
             {
                 SpinCounter = spinCounter,
@@ -120,8 +118,17 @@ namespace BloodSuckersSlot.Api.Controllers
 
         public (SpinResult Result, string[][] Grid, ReelSet ChosenSet, List<WinningLine> WinningLines) SpinWithReelSets(GameConfig config, int betAmount, List<ReelSet> reelSetsFromDb, double currentRtp = 0, double currentHitRate = 0, double monetaryBetAmount = 0, double coinValue = 0.10)
         {
+            var spinLogicStartTime = DateTime.UtcNow;
+            var stepTime = DateTime.UtcNow;
+            
+            Console.WriteLine($"🎰 SPIN LOGIC START: {reelSetsFromDb.Count} reel sets available");
+            
             List<ReelSet> healthySets = new();
             bool isFreeSpin = _freeSpinsRemaining > 0;
+            
+            var step1Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+            Console.WriteLine($"⏱️ SPIN LOGIC STEP 1 (Setup): {step1Time}ms");
+            stepTime = DateTime.UtcNow;
             double currentRtpBeforeSpin = currentRtp; // Use session-based RTP instead of global
             double currentHitRateBeforeSpin = currentHitRate; // Use session-based Hit Rate instead of global
             double currentVolatility = CalculateCurrentVolatility();
@@ -146,6 +153,13 @@ namespace BloodSuckersSlot.Api.Controllers
                 reelSets = reelSets.Where(r => r.Name != null && r.Name.StartsWith("MidRtp")).ToList();
             }
 
+            // Log RTP priority status once per spin (not per reel set)
+            double rtpDeviation = Math.Abs(currentRtpBeforeSpin - config.RtpTarget) / config.RtpTarget;
+            if (rtpDeviation > 0.15)
+            {
+                Console.WriteLine($"🎯 RTP PRIORITY ACTIVE: Deviation={rtpDeviation:P1}, Prioritizing RTP over Hit Rate for {reelSets.Count} reel sets");
+            }
+            
             // Calculate improved weights for all reel sets using new formula-based approach
             foreach (var reelSet in reelSets)
             {
@@ -162,9 +176,17 @@ namespace BloodSuckersSlot.Api.Controllers
                 reelSet.CombinedWeight = CalculateCombinedWeight(reelSet, currentRtpBeforeSpin, 
                                                                currentHitRateBeforeSpin, currentVolatility, config);
             }
+            
+            var step2Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+            Console.WriteLine($"⏱️ SPIN LOGIC STEP 2 (Weight Calculation): {step2Time}ms for {reelSets.Count} reel sets");
+            stepTime = DateTime.UtcNow;
 
             // Intelligent reel set selection based on current performance
             ReelSet chosenSet = SelectOptimalReelSet(reelSets, currentRtpBeforeSpin, currentHitRateBeforeSpin, currentVolatility, config);
+
+            var step3Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+            Console.WriteLine($"⏱️ SPIN LOGIC STEP 3 (Reel Set Selection): {step3Time}ms");
+            stepTime = DateTime.UtcNow;
 
             if (chosenSet == null)
             {
@@ -210,6 +232,11 @@ namespace BloodSuckersSlot.Api.Controllers
             }
 
             var grid = SlotEvaluationService.SpinReels(chosenSet.Reels);
+            
+            var step4Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+            Console.WriteLine($"⏱️ SPIN LOGIC STEP 4 (Reel Spinning): {step4Time}ms");
+            stepTime = DateTime.UtcNow;
+            
             var winningLines = new List<WinningLine>();
 
             // OFFICIAL BLOODSUCKERS MALFUNCTION RULE: Check for malfunctions before processing
@@ -253,6 +280,10 @@ namespace BloodSuckersSlot.Api.Controllers
             var wildWin = SlotEvaluationService.EvaluateWildLineWinsWithLines(grid, config.Paylines, config.Symbols, out var wildWinningLines);
             var scatterWin = SlotEvaluationService.EvaluateScattersWithLines(grid, config.Symbols, isFreeSpin, out var scatterWinningLines, out var scatterCount, betAmount);
 
+            var step5Time = (DateTime.UtcNow - stepTime).TotalMilliseconds;
+            Console.WriteLine($"⏱️ SPIN LOGIC STEP 5 (Win Evaluation): {step5Time}ms");
+            stepTime = DateTime.UtcNow;
+
             // Handle free spin triggering from scatter evaluation
             int freeSpinsAwarded = 0;
             if (scatterCount >= 3 && !isFreeSpin)
@@ -277,8 +308,7 @@ namespace BloodSuckersSlot.Api.Controllers
                     _freeSpinsAwarded += freeSpinsAwarded;
                     _totalFreeSpinsAwarded += freeSpinsAwarded;
                     _lastFreeSpinOpportunitySpin = spinCounter; // Track when free spins were triggered
-                    Console.WriteLine($"🎰 FREE SPINS TRIGGERED: {scatterCount} scatters => +{freeSpinsAwarded} free spins");
-                    Console.WriteLine($"🎰 FREE SPINS STATE: Remaining={_freeSpinsRemaining}, Awarded={_freeSpinsAwarded}, Total={_totalFreeSpinsAwarded}");
+                Console.WriteLine($"🎰 FREE SPINS TRIGGERED: {scatterCount} scatters => +{freeSpinsAwarded} free spins");
                 }
             }
             
@@ -421,6 +451,9 @@ namespace BloodSuckersSlot.Api.Controllers
                 TotalBonusesTriggered = _totalBonusesTriggered,
                 SpinType = isFreeSpin ? "FREE SPIN" : "PAID SPIN"
             };
+
+            var totalSpinLogicTime = (DateTime.UtcNow - spinLogicStartTime).TotalMilliseconds;
+            Console.WriteLine($"🏁 SPIN LOGIC COMPLETE: Total Time={totalSpinLogicTime}ms");
 
             return (result, grid, chosenSet, winningLines);
         }
@@ -633,7 +666,6 @@ namespace BloodSuckersSlot.Api.Controllers
             {
                 rtpMultiplier *= 3.0; // Triple RTP importance
                 hitRateMultiplier *= 0.3; // Reduce hit rate importance to 30%
-                Console.WriteLine($"🎯 RTP PRIORITY: Deviation={rtpDeviation:P1}, RTP multiplier={rtpMultiplier:F2}, HitRate multiplier={hitRateMultiplier:F2}");
             }
             else if (rtpDeviation > 0.1) // More than 10% deviation
             {
